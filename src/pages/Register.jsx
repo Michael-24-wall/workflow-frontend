@@ -1,63 +1,61 @@
-
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';  
-import { Link, useNavigate } from 'react-router-dom';
-import useAuthStore  from '../stores/authStore';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import useAuthStore from '../stores/authStore';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 
 const Register = () => {  
-  const { register, handleSubmit, formState: { errors }, watch } = useForm();
+  const { register, handleSubmit, formState: { errors }, watch } = useForm({
+    defaultValues: {
+      organizationType: 'create' // Default to creating organization
+    }
+  });
   const { register: registerUser, isLoading, error } = useAuthStore();
   const navigate = useNavigate();
-  const [showOrganization, setShowOrganization] = useState(true);
+  const [searchParams] = useSearchParams();
+  const [organizationType, setOrganizationType] = useState('create'); // 'create' or 'join'
 
+  const inviteToken = searchParams.get('invite_token');
   const password = watch('password');
 
+  // If there's an invite token, hide organization creation
+  React.useEffect(() => {
+    if (inviteToken) {
+      setOrganizationType('join');
+    }
+  }, [inviteToken]);
+
   const onSubmit = async (data) => {
-  // Format data for your Django API based on UserRegistrationSerializer
-  const userData = {
-   email: data.email,
-    password: data.password,
-    password2: data.confirmPassword, 
-    first_name: data.firstName,
-    last_name: data.lastName,
+    // Format data for your Django API based on UserRegistrationSerializer
+    const userData = {
+      email: data.email,
+      password: data.password,
+      password2: data.confirmPassword, 
+      first_name: data.firstName,
+      last_name: data.lastName,
+    };
+
+    // Add invite token if present
+    if (inviteToken) {
+      userData.invite_token = inviteToken;
+    } 
+    // Add organization only if creating new one
+    else if (organizationType === 'create' && data.organizationName) {
+      userData.organization = { 
+        name: data.organizationName
+      };
+    }
+    // If joining existing, don't send organization data (user will be individual)
+
+    const result = await registerUser(userData);
+    if (result.success) {
+      navigate('/login', { 
+        state: { message: result.message || 'Registration successful! Please check your email for verification.' }
+      });
+    }
   };
 
-  // Add organization data if creating one
-  if (showOrganization && data.createOrganization && data.organizationName) {
-    userData.organization= { 
-      name: data.organizationName
-    };
-  }
-  
-    
-
-  const result = await registerUser(userData);
-  if (result.success) {
-    navigate('/login', { 
-      state: { message: result.message || 'Registration successful! Please check your email for verification.' }
-    });
-  }
-};
-   
-
-{error && (
-  <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
-    {error.includes('email already exists') ? (
-      <div>
-        <p>This email is already registered.</p>
-        <p className="mt-1">
-          <Link to="/login" className="font-medium underline">
-            Sign in here
-          </Link> or use a different email address.
-        </p>
-      </div>
-    ) : (
-      typeof error === 'object' ? JSON.stringify(error) : error
-    )}
-  </div>
-)}
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -69,18 +67,37 @@ const Register = () => {
           </div>
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-primary-900">
-          Join Paperless System
+          {inviteToken ? 'Join Organization' : 'Join Paperless System'}
         </h2>
         <p className="mt-2 text-center text-sm text-gray-600">
-          Create your account and get started
+          {inviteToken ? 'Complete registration to join the organization' : 'Create your account and get started'}
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <Card className="px-4 py-8 sm:px-10">
+          {/* Invite Message */}
+          {inviteToken && (
+            <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-700 px-4 py-3 rounded text-sm">
+              <p className="font-medium">You've been invited to join an organization!</p>
+              <p className="mt-1 text-sm">Complete registration to accept the invitation.</p>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
-              {typeof error === 'object' ? JSON.stringify(error) : error}
+              {error.includes('email already exists') ? (
+                <div>
+                  <p>This email is already registered.</p>
+                  <p className="mt-1">
+                    <Link to="/login" className="font-medium underline">
+                      Sign in here
+                    </Link> or use a different email address.
+                  </p>
+                </div>
+              ) : (
+                typeof error === 'object' ? JSON.stringify(error) : error
+              )}
             </div>
           )}
 
@@ -213,54 +230,107 @@ const Register = () => {
               </div>
             </div>
 
-            {/* Organization Creation */}
-            <div className="border-t border-gray-200 pt-6">
-              <div className="flex items-start mb-4">
-                <input
-                  id="createOrganization"
-                  type="checkbox"
-                  {...register('createOrganization')}
-                  defaultChecked={true}
-                  onChange={(e) => setShowOrganization(e.target.checked)}
-                  className="h-4 w-4 text-primary-900 focus:ring-primary-900 border-gray-300 rounded mt-1"
-                />
-                <label htmlFor="createOrganization" className="ml-2 block text-sm text-gray-900">
-                  <span className="font-medium">Create a new organization</span>
-                  <p className="text-gray-500 text-xs mt-1">
-                    You'll be the owner and can invite team members
-                  </p>
-                </label>
-              </div>
-
-              {showOrganization && (
-                <div className="ml-6 bg-gray-50 p-4 rounded-lg">
-                  <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
-                    Organization Name *
-                  </label>
-                  <div className="mt-1">
+            {/* Organization Options - Only show if no invite token */}
+            {!inviteToken && (
+              <div className="border-t border-gray-200 pt-6">
+                <div className="space-y-4">
+                  {/* Create New Organization Option */}
+                  <div className="flex items-start">
                     <input
-                      id="organizationName"
-                      type="text"
-                      {...register('organizationName', { 
-                        required: showOrganization ? 'Organization name is required' : false,
-                        minLength: {
-                          value: 2,
-                          message: 'Organization name must be at least 2 characters'
-                        }
-                      })}
-                      className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
-                      placeholder="Acme Inc."
+                      id="createOrganization"
+                      type="radio"
+                      {...register('organizationType')}
+                      value="create"
+                      defaultChecked={true}
+                      onChange={(e) => setOrganizationType(e.target.value)}
+                      className="h-4 w-4 text-primary-900 focus:ring-primary-900 border-gray-300 rounded mt-1"
                     />
-                    {errors.organizationName && (
-                      <p className="mt-1 text-sm text-red-600">{errors.organizationName.message}</p>
-                    )}
+                    <label htmlFor="createOrganization" className="ml-2 block text-sm text-gray-900">
+                      <span className="font-medium">Create a new organization</span>
+                      <p className="text-gray-500 text-xs mt-1">
+                        You'll be the owner and can invite team members
+                      </p>
+                    </label>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
-                    This will be your workspace name. You can change it later.
-                  </p>
+
+                  {/* Join Existing Organization Option */}
+                  <div className="flex items-start">
+                    <input
+                      id="joinOrganization"
+                      type="radio"
+                      {...register('organizationType')}
+                      value="join"
+                      onChange={(e) => setOrganizationType(e.target.value)}
+                      className="h-4 w-4 text-primary-900 focus:ring-primary-900 border-gray-300 rounded mt-1"
+                    />
+                    <label htmlFor="joinOrganization" className="ml-2 block text-sm text-gray-900">
+                      <span className="font-medium">Join existing organization</span>
+                      <p className="text-gray-500 text-xs mt-1">
+                        You'll need an invitation link from an organization admin
+                      </p>
+                    </label>
+                  </div>
                 </div>
-              )}
-            </div>
+
+                {/* Show organization name input only when creating new org */}
+                {organizationType === 'create' && (
+                  <div className="ml-6 bg-gray-50 p-4 rounded-lg mt-4">
+                    <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
+                      Organization Name *
+                    </label>
+                    <div className="mt-1">
+                      <input
+                        id="organizationName"
+                        type="text"
+                        {...register('organizationName', { 
+                          required: organizationType === 'create' ? 'Organization name is required' : false,
+                          minLength: {
+                            value: 2,
+                            message: 'Organization name must be at least 2 characters'
+                          }
+                        })}
+                        className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
+                        placeholder="Acme Inc."
+                      />
+                      {errors.organizationName && (
+                        <p className="mt-1 text-sm text-red-600">{errors.organizationName.message}</p>
+                      )}
+                    </div>
+                    <p className="mt-2 text-xs text-gray-500">
+                      This will be your workspace name. You can change it later.
+                    </p>
+                  </div>
+                )}
+
+                {/* Show join message when selecting join organization */}
+                {organizationType === 'join' && (
+                  <div className="ml-6 bg-blue-50 p-4 rounded-lg mt-4">
+                    <div className="flex items-center">
+                      <svg className="w-5 h-5 text-blue-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <div>
+                        <p className="text-sm font-medium text-blue-800">No invitation link?</p>
+                        <p className="text-sm text-blue-600 mt-1">
+                          Ask your organization admin to send you an invitation email, or{' '}
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              setOrganizationType('create');
+                              document.getElementById('createOrganization').click();
+                            }}
+                            className="underline font-medium"
+                          >
+                            create a new organization
+                          </button>
+                          {' '}instead.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Terms and Conditions */}
             <div className="flex items-start">
@@ -297,10 +367,10 @@ const Register = () => {
                 {isLoading ? (
                   <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                    Creating account...
+                    {inviteToken ? 'Joining organization...' : 'Creating account...'}
                   </div>
                 ) : (
-                  'Create account'
+                  inviteToken ? 'Join Organization' : 'Create account'
                 )}
               </Button>
             </div>

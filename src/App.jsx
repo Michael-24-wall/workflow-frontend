@@ -8,6 +8,7 @@ import Profile from './pages/Profile'; // Comment out temporarily
 import Organization from './pages/Organization';
 import ForgotPassword from './pages/ForgotPassword';
 import PasswordReset from './components/PasswordReset';
+import JoinOrganization from './pages/Joinorganization';
 function App() {
   const { checkAuth, isLoading, user } = useAuthStore();
 
@@ -31,6 +32,8 @@ function App() {
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/password-reset" element={<PasswordReset />} />
+        // Add this route to your App.jsx
+<Route path="/join-organization" element={<JoinOrganization />} />
         
         {/* Protected Routes */}
         <Route 

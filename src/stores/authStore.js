@@ -274,6 +274,56 @@ const useAuthStore = create((set, get) => ({
     }
   },
 
+  // 🆕 COMBINED ORGANIZATION DATA CALL (FIXED SYNTAX)
+  getOrganizationData: async () => {
+    set({ isLoading: true });
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      // Make all calls in parallel to minimize re-renders
+      const [orgResponse, invitationsResponse, membersResponse, statsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/organization/my_organization/`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/organization/pending_invitations/`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/organization/members/`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        }),
+        fetch(`${API_BASE_URL}/organization/statistics/`, {
+          method: 'GET',
+          headers: { 'Authorization': `Bearer ${token}` },
+        })
+      ]);
+
+      // Update all state at once to prevent multiple re-renders
+      const organization = orgResponse.ok ? await orgResponse.json() : null;
+      const invitations = invitationsResponse.ok ? await invitationsResponse.json() : [];
+      const members = membersResponse.ok ? await membersResponse.json() : [];
+      const statistics = statsResponse.ok ? await statsResponse.json() : null;
+
+      set({
+        organization,
+        invitations,
+        members,
+        isLoading: false
+      });
+
+      return { 
+        success: true, 
+        data: { organization, invitations, members, statistics } 
+      };
+
+    } catch (error) {
+      set({ isLoading: false });
+      return { success: false, error: error.message };
+    }
+  },
+
   sendInvitation: async (invitationData) => {
     set({ isLoading: true, error: null });
     try {

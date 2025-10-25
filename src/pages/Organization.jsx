@@ -9,11 +9,8 @@ const Organization = () => {
     organization, 
     invitations, 
     members, 
-    getOrganization, 
-    sendInvitation, 
-    getPendingInvitations, 
-    getMembers,
-    getStatistics,
+    getOrganizationData,
+    sendInvitation,
     isLoading,
     error 
   } = useAuthStore();
@@ -27,12 +24,9 @@ const Organization = () => {
   }, []);
 
   const loadOrganizationData = async () => {
-    await getOrganization();
-    await getPendingInvitations();
-    await getMembers();
-    const statsResult = await getStatistics();
-    if (statsResult.success) {
-      setStats(statsResult.data);
+    const result = await getOrganizationData();
+    if (result.success) {
+      setStats(result.data.statistics);
     }
   };
 
@@ -43,10 +37,10 @@ const Organization = () => {
     const result = await sendInvitation({ email, role });
     if (result.success) {
       setEmail('');
-      await getPendingInvitations();
-      const statsResult = await getStatistics();
-      if (statsResult.success) {
-        setStats(statsResult.data);
+      // Refresh all data after sending invitation
+      const refreshResult = await getOrganizationData();
+      if (refreshResult.success) {
+        setStats(refreshResult.data.statistics);
       }
     }
   };
@@ -138,27 +132,31 @@ const Organization = () => {
           <form onSubmit={handleSendInvitation} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="invite-email" className="block text-sm font-medium text-gray-700 mb-1">
                   Email Address
                 </label>
                 <input
+                  id="invite-email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="colleague@company.com"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-900 focus:border-transparent"
                   required
+                  autoComplete="email"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="invite-role" className="block text-sm font-medium text-gray-700 mb-1">
                   Role
                 </label>
                 <select
+                  id="invite-role"
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-900 focus:border-transparent"
+                  autoComplete="organization-title"
                 >
                   <option value="contributor">Contributor</option>
                   <option value="staff">Staff</option>
