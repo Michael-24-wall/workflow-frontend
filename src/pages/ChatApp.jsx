@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { chatApi } from '../services/chatApi';
 
 const ChatApp = () => {
@@ -10,12 +10,25 @@ const ChatApp = () => {
   const [error, setError] = useState(null);
   const [showFileUpload, setShowFileUpload] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [showMessageMenu, setShowMessageMenu] = useState(null);
 
   const BASE_URL = 'http://localhost:9000';
+  const messagesEndRef = useRef(null);
 
   useEffect(() => {
     loadRooms();
   }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const loadRooms = async () => {
     try {
@@ -52,6 +65,8 @@ const ChatApp = () => {
       setCurrentRoom(room);
       loadMessages(roomId);
       setError(null);
+      setReplyingTo(null);
+      setEditingMessage(null);
     } catch (error) {
       console.error('Failed to join room:', error);
       setError('Failed to join room');
@@ -83,19 +98,57 @@ const ChatApp = () => {
 
   const sendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !currentRoom) return;
+    if ((!newMessage.trim() && !replyingTo) || !currentRoom) return;
 
     try {
-      await chatApi.sendMessage({
+      const messageData = {
         room: currentRoom.id,
-        content: newMessage,
+        content: newMessage.trim(),
         message_type: 'text'
-      });
+      };
+
+      if (replyingTo) {
+        messageData.reply_to = replyingTo.id;
+      }
+
+      await chatApi.sendMessage(messageData);
       setNewMessage('');
+      setReplyingTo(null);
       loadMessages(currentRoom.id);
     } catch (error) {
       console.error('Failed to send message:', error);
       setError('Failed to send message');
+    }
+  };
+
+  const updateMessage = async () => {
+    if (!editContent.trim() || !editingMessage) return;
+
+    try {
+      // You'll need to add this endpoint to your Django API
+      await chatApi.updateMessage(editingMessage.id, {
+        content: editContent.trim()
+      });
+      setEditingMessage(null);
+      setEditContent('');
+      loadMessages(currentRoom.id);
+    } catch (error) {
+      console.error('Failed to update message:', error);
+      setError('Failed to update message');
+    }
+  };
+
+  const deleteMessage = async (messageId) => {
+    if (!window.confirm('Are you sure you want to delete this message?')) return;
+
+    try {
+      // You'll need to add this endpoint to your Django API
+      await chatApi.deleteMessage(messageId);
+      setShowMessageMenu(null);
+      loadMessages(currentRoom.id);
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      setError('Failed to delete message');
     }
   };
 
@@ -134,6 +187,27 @@ const ChatApp = () => {
     }
     
     return `${BASE_URL}/${fileUrl}`;
+  };
+
+  const cancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingMessage(null);
+    setEditContent('');
+  };
+
+  const startReply = (message) => {
+    setReplyingTo(message);
+    setEditingMessage(null);
+  };
+
+  const startEdit = (message) => {
+    setEditingMessage(message);
+    setEditContent(message.content);
+    setReplyingTo(null);
+    setShowMessageMenu(null);
   };
 
   // File Upload Modal Component
@@ -246,6 +320,88 @@ const ChatApp = () => {
     );
   };
 
+  // Reply Preview Component
+  const ReplyPreview = () => {
+    if (!replyingTo) return null;
+
+    return (
+      <div className="bg-blue-50 border-l-4 border-blue-500 p-3 mb-3 rounded-r-lg">
+        <div className="flex justify-between items-start">
+          <div className="flex-1">
+            <div className="text-sm text-blue-700 font-medium mb-1">
+              Replying to {replyingTo.user?.email}
+            </div>
+            <div className="text-sm text-blue-600 truncate">
+              {replyingTo.content}
+            </div>
+          </div>
+          <button
+            onClick={cancelReply}
+            className="text-blue-500 hover:text-blue-700 ml-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Message Menu Component
+  const MessageMenu = ({ message, onClose }) => {
+    const isOwnMessage = message.user?.email === 'current_user_email'; // You'll need to get current user email
+
+    return (
+      <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
+        <div className="py-1">
+          <button
+            onClick={() => {
+              startReply(message);
+              onClose();
+            }}
+            className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+            </svg>
+            <span>Reply</span>
+          </button>
+          
+          {isOwnMessage && (
+            <>
+              <button
+                onClick={() => {
+                  startEdit(message);
+                  onClose();
+                }}
+                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <span>Edit</span>
+              </button>
+              
+              <button
+                onClick={() => {
+                  deleteMessage(message.id);
+                  onClose();
+                }}
+                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>Delete</span>
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Message Component
   const Message = ({ message }) => {
     const [imageLoaded, setImageLoaded] = useState(false);
@@ -258,6 +414,9 @@ const ChatApp = () => {
     const content = message?.content || '';
     const userEmail = message?.user?.email || 'Unknown';
     const timestamp = message?.timestamp;
+    const replyTo = message?.reply_to;
+    const isEdited = message?.is_edited;
+    const isOwnMessage = userEmail === 'current_user_email'; // Replace with actual current user check
 
     const formatTime = (timestamp) => {
       return new Date(timestamp).toLocaleTimeString([], { 
@@ -267,13 +426,20 @@ const ChatApp = () => {
     };
 
     return (
-      <div className="flex space-x-3 px-4 py-2 hover:bg-gray-50 group">
+      <div className="flex space-x-3 px-4 py-2 hover:bg-gray-50 group relative">
         <div className="flex-shrink-0">
           <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
             {userEmail.charAt(0).toUpperCase()}
           </div>
         </div>
         <div className="flex-1 min-w-0">
+          {/* Reply Preview */}
+          {replyTo && (
+            <div className="mb-2 text-sm text-gray-500 border-l-2 border-gray-300 pl-2">
+              Replying to <span className="font-medium">{replyTo.user?.email}</span>: {replyTo.content}
+            </div>
+          )}
+          
           <div className="flex items-baseline space-x-2">
             <span className="font-semibold text-gray-900 text-sm">
               {userEmail}
@@ -281,6 +447,9 @@ const ChatApp = () => {
             <span className="text-xs text-gray-500">
               {timestamp ? formatTime(timestamp) : ''}
             </span>
+            {isEdited && (
+              <span className="text-xs text-gray-400">(edited)</span>
+            )}
           </div>
           
           {/* Image Message */}
@@ -369,6 +538,25 @@ const ChatApp = () => {
             </div>
           )}
         </div>
+
+        {/* Message Actions Menu */}
+        <div className="absolute right-4 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => setShowMessageMenu(showMessageMenu === message.id ? null : message.id)}
+            className="p-1 text-gray-400 hover:text-gray-600 rounded"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+            </svg>
+          </button>
+          
+          {showMessageMenu === message.id && (
+            <MessageMenu 
+              message={message} 
+              onClose={() => setShowMessageMenu(null)}
+            />
+          )}
+        </div>
       </div>
     );
   };
@@ -399,7 +587,7 @@ const ChatApp = () => {
 
   return (
     <div className="flex h-screen bg-white text-gray-900">
-      {/* Sidebar - Slack Style */}
+      {/* Sidebar */}
       <div className="w-64 bg-purple-700 text-white">
         <div className="p-4 border-b border-purple-600">
           <h1 className="text-xl font-bold">Chat Rooms</h1>
@@ -473,38 +661,81 @@ const ChatApp = () => {
                     <p className="text-sm">Start the conversation!</p>
                   </div>
                 )}
+                <div ref={messagesEndRef} />
               </div>
             </div>
 
-            {/* Message Input - Slack Style */}
+            {/* Reply Preview */}
+            {replyingTo && <ReplyPreview />}
+
+            {/* Message Input */}
             <div className="bg-white border-t border-gray-200 p-4">
-              <form onSubmit={sendMessage} className="flex space-x-3">
+              <form onSubmit={editingMessage ? updateMessage : sendMessage} className="flex space-x-3">
                 <div className="flex-1 relative">
                   <input
                     type="text"
-                    value={newMessage}
-                    onChange={(e) => setNewMessage(e.target.value)}
-                    placeholder={`Message #${currentRoom.title || 'room'}`}
+                    value={editingMessage ? editContent : newMessage}
+                    onChange={(e) => editingMessage ? setEditContent(e.target.value) : setNewMessage(e.target.value)}
+                    placeholder={
+                      editingMessage 
+                        ? "Edit your message..." 
+                        : replyingTo 
+                        ? `Reply to ${replyingTo.user?.email}...` 
+                        : `Message #${currentRoom.title || 'room'}`
+                    }
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
+                  {editingMessage && (
+                    <div className="absolute -top-8 left-0 bg-blue-50 text-blue-700 px-3 py-1 rounded text-sm">
+                      Editing message
+                      <button
+                        onClick={cancelEdit}
+                        className="ml-2 text-blue-500 hover:text-blue-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowFileUpload(true)}
-                  className="px-4 py-3 text-gray-400 hover:text-gray-600 transition-colors border border-gray-300 rounded-lg hover:border-gray-400"
-                  title="Share files and images"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                </button>
-                <button
-                  type="submit"
-                  disabled={!newMessage.trim()}
-                  className="bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                >
-                  Send
-                </button>
+                
+                {editingMessage ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={cancelEdit}
+                      className="px-4 py-3 text-gray-600 hover:text-gray-800 transition-colors border border-gray-300 rounded-lg hover:border-gray-400"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!editContent.trim()}
+                      className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                    >
+                      Update
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setShowFileUpload(true)}
+                      className="px-4 py-3 text-gray-400 hover:text-gray-600 transition-colors border border-gray-300 rounded-lg hover:border-gray-400"
+                      title="Share files and images"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!newMessage.trim() && !replyingTo}
+                      className="bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                    >
+                      {replyingTo ? 'Reply' : 'Send'}
+                    </button>
+                  </>
+                )}
               </form>
             </div>
           </>

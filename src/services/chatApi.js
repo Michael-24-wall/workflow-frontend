@@ -57,6 +57,16 @@ export const chatApi = {
     body: JSON.stringify(data),
   }),
   
+  // Message Actions (NEW)
+  updateMessage: (messageId, data) => apiRequest(`/messages/${messageId}/`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  }),
+  
+  deleteMessage: (messageId) => apiRequest(`/messages/${messageId}/`, {
+    method: 'DELETE',
+  }),
+
   // File Upload
   uploadFile: (file, roomId, description = '') => {
     const formData = new FormData();
@@ -79,4 +89,29 @@ export const chatApi = {
 
   // Statistics
   getStatistics: () => apiRequest('/statistics/'),
+
+  // Search
+  searchMessages: (query, roomId = null) => {
+    let url = `/search-messages/?q=${encodeURIComponent(query)}`;
+    if (roomId) url += `&room_id=${roomId}`;
+    return apiRequest(url);
+  },
+
+  // Mark as read
+  markAsRead: (messageId) => apiRequest(`/messages/${messageId}/read/`, {
+    method: 'POST',
+  }),
+
+  // Workflow rooms
+  getWorkflowRooms: () => apiRequest('/workflow-rooms/'),
+  
+  // Workflow actions
+  workflowAction: (messageId, action, comments = '') => apiRequest('/workflow-quick-action/', {
+    method: 'POST',
+    body: JSON.stringify({
+      message_id: messageId,
+      action,
+      comments,
+    }),
+  }),
 };
