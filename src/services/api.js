@@ -73,4 +73,6 @@ export const organizationAPI = {
   updateOrganization: (id, data) => api.patch(`/organizations/${id}/`, data),
 };
 
+
+
 export default api;

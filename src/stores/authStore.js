@@ -254,76 +254,85 @@ const useAuthStore = create((set, get) => ({
     }
   },
 
-  getOrganization: async () => {
-    set({ isLoading: true });
-    try {
-      const token = localStorage.getItem('access_token');
-      const response = await fetch(`${API_BASE_URL}/organization/my_organization/`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (response.ok) {
-        const orgData = await response.json();
-        set({ organization: orgData, isLoading: false });
-      }
-    } catch (error) {
-      set({ isLoading: false });
-    }
-  },
-
-  // 🆕 COMBINED ORGANIZATION DATA CALL (FIXED SYNTAX)
+  // ✅ ULTIMATE FIX: COMBINED ORGANIZATION DATA CALL
   getOrganizationData: async () => {
-    set({ isLoading: true });
+    console.log('🔄 Starting getOrganizationData...');
+    set({ isLoading: true, error: null });
+    
     try {
       const token = localStorage.getItem('access_token');
       
-      // Make all calls in parallel to minimize re-renders
-      const [orgResponse, invitationsResponse, membersResponse, statsResponse] = await Promise.all([
+      if (!token) {
+        throw new Error('No access token found');
+      }
+
+      console.log('📡 Making organization API calls...');
+
+      // Make all organization API calls
+      const apiCalls = [
         fetch(`${API_BASE_URL}/organization/my_organization/`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
         }),
         fetch(`${API_BASE_URL}/organization/pending_invitations/`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
         }),
         fetch(`${API_BASE_URL}/organization/members/`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
         }),
         fetch(`${API_BASE_URL}/organization/statistics/`, {
-          method: 'GET',
-          headers: { 'Authorization': `Bearer ${token}` },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}` 
+          },
         })
-      ]);
+      ];
 
-      // Update all state at once to prevent multiple re-renders
-      const organization = orgResponse.ok ? await orgResponse.json() : null;
-      const invitations = invitationsResponse.ok ? await invitationsResponse.json() : [];
-      const members = membersResponse.ok ? await membersResponse.json() : [];
-      const statistics = statsResponse.ok ? await statsResponse.json() : null;
+      const responses = await Promise.all(apiCalls);
+      
+      // Process each response
+      const organization = responses[0].ok ? await responses[0].json() : null;
+      const invitations = responses[1].ok ? await responses[1].json() : [];
+      const members = responses[2].ok ? await responses[2].json() : [];
+      const statistics = responses[3].ok ? await responses[3].json() : null;
 
-      set({
-        organization,
-        invitations,
-        members,
-        isLoading: false
+      console.log('✅ API Responses:', {
+        organization: organization ? 'EXISTS' : 'NULL',
+        invitations: invitations.length,
+        members: members.length,
+        statistics: statistics ? 'EXISTS' : 'NULL'
       });
 
+      // ✅ CRITICAL FIX: Update Zustand store with individual set calls
+      set({ organization });
+      set({ invitations });
+      set({ members });
+      set({ isLoading: false, error: null });
+
+      console.log('🎯 Zustand store updated successfully');
+      console.log('📊 Current store state:', get());
+
       return { 
-        success: true, 
-        data: { organization, invitations, members, statistics } 
+        success: true,
+        data: { organization, invitations, members, statistics }
       };
 
     } catch (error) {
-      set({ isLoading: false });
+      console.error('❌ getOrganizationData error:', error);
+      set({ isLoading: false, error: error.message });
       return { success: false, error: error.message };
     }
   },
 
+  // ✅ FIXED: SEND INVITATION
   sendInvitation: async (invitationData) => {
     set({ isLoading: true, error: null });
     try {
@@ -337,10 +346,21 @@ const useAuthStore = create((set, get) => ({
         body: JSON.stringify(invitationData),
       });
       
-      if (!response.ok) throw new Error('Failed to send invitation');
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || errorData.role || 'Failed to send invitation');
+      }
       
-      set({ isLoading: false });
-      return { success: true, message: 'Invitation sent successfully' };
+      const data = await response.json();
+      
+      // Refresh organization data
+      await get().getOrganizationData();
+      
+      return { 
+        success: true, 
+        message: data.message,
+        invitation: data.invitation 
+      };
     } catch (error) {
       set({ error: error.message, isLoading: false });
       return { success: false, error: error.message };
@@ -348,10 +368,10 @@ const useAuthStore = create((set, get) => ({
   },
 
   getPendingInvitations: async () => {
+    set({ isLoading: true });
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/organization/pending_invitations/`, {
-        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -359,18 +379,23 @@ const useAuthStore = create((set, get) => ({
       
       if (response.ok) {
         const invitations = await response.json();
-        set({ invitations });
+        set({ invitations, isLoading: false });
+        return { success: true, data: invitations };
+      } else {
+        set({ isLoading: false });
+        return { success: false, error: 'Failed to fetch invitations' };
       }
     } catch (error) {
-      console.error('Failed to fetch invitations:', error);
+      set({ isLoading: false, error: error.message });
+      return { success: false, error: error.message };
     }
   },
 
   getMembers: async () => {
+    set({ isLoading: true });
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/organization/members/`, {
-        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -378,18 +403,23 @@ const useAuthStore = create((set, get) => ({
       
       if (response.ok) {
         const members = await response.json();
-        set({ members });
+        set({ members, isLoading: false });
+        return { success: true, data: members };
+      } else {
+        set({ isLoading: false });
+        return { success: false, error: 'Failed to fetch members' };
       }
     } catch (error) {
-      console.error('Failed to fetch members:', error);
+      set({ isLoading: false, error: error.message });
+      return { success: false, error: error.message };
     }
   },
 
   getStatistics: async () => {
+    set({ isLoading: true });
     try {
       const token = localStorage.getItem('access_token');
       const response = await fetch(`${API_BASE_URL}/organization/statistics/`, {
-        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -397,10 +427,14 @@ const useAuthStore = create((set, get) => ({
       
       if (response.ok) {
         const statistics = await response.json();
+        set({ isLoading: false });
         return { success: true, data: statistics };
+      } else {
+        set({ isLoading: false });
+        return { success: false, error: 'Failed to fetch statistics' };
       }
-      return { success: false };
     } catch (error) {
+      set({ isLoading: false, error: error.message });
       return { success: false, error: error.message };
     }
   },
@@ -422,7 +456,6 @@ const useAuthStore = create((set, get) => ({
         localStorage.setItem('access_token', data.access);
         return { success: true, access: data.access };
       } else {
-        // Refresh token expired, logout user
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         set({ user: null, organization: null, invitations: [], members: [] });
@@ -432,6 +465,11 @@ const useAuthStore = create((set, get) => ({
       return { success: false };
     }
   },
+
+  // 🆕 Clear organization data
+  clearOrganizationData: () => {
+    set({ organization: null, invitations: [], members: [] });
+  }
 }));
 
 export default useAuthStore;

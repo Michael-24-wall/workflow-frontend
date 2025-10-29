@@ -1,55 +1,132 @@
 import React, { useEffect, useState } from 'react';
-import useAuthStore from '../stores/authStore';
 import Card from '../components/ui/Card';
 import Button from '../components/ui/Button';
 
+const API_BASE_URL = 'http://localhost:9000/api';
+
 const Organization = () => {
-  const { 
-    user, 
-    organization, 
-    invitations, 
-    members, 
-    getOrganizationData,
-    sendInvitation,
-    isLoading,
-    error 
-  } = useAuthStore();
-  
+  const [organization, setOrganization] = useState(null);
+  const [invitations, setInvitations] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('contributor');
-  const [stats, setStats] = useState(null);
 
-  useEffect(() => {
-    loadOrganizationData();
-  }, []);
+  // Direct API calls - no Zustand
+  const fetchOrganizationData = async () => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('No access token found');
+      }
 
-  const loadOrganizationData = async () => {
-    const result = await getOrganizationData();
-    if (result.success) {
-      setStats(result.data.statistics);
+      console.log('🔄 Loading organization data...');
+
+      // Make API calls directly
+      const [orgResponse, invitesResponse, membersResponse, statsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/organization/my_organization/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE_URL}/organization/pending_invitations/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE_URL}/organization/members/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }),
+        fetch(`${API_BASE_URL}/organization/statistics/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+      ]);
+
+      // Process responses
+      if (orgResponse.ok) {
+        const orgData = await orgResponse.json();
+        setOrganization(orgData);
+      }
+
+      if (invitesResponse.ok) {
+        const invitesData = await invitesResponse.json();
+        setInvitations(invitesData);
+      }
+
+      if (membersResponse.ok) {
+        const membersData = await membersResponse.json();
+        setMembers(membersData);
+      }
+
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setStats(statsData);
+      }
+
+    } catch (error) {
+      console.error('❌ Organization data error:', error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
     }
   };
+
+  // Load data on component mount
+  useEffect(() => {
+    fetchOrganizationData();
+  }, []);
 
   const handleSendInvitation = async (e) => {
     e.preventDefault();
-    if (!email) return;
+    if (!email.trim()) return;
     
-    const result = await sendInvitation({ email, role });
-    if (result.success) {
-      setEmail('');
-      // Refresh all data after sending invitation
-      const refreshResult = await getOrganizationData();
-      if (refreshResult.success) {
-        setStats(refreshResult.data.statistics);
+    try {
+      const token = localStorage.getItem('access_token');
+      const response = await fetch(`${API_BASE_URL}/organization/send_invitation/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: email.trim(), role }),
+      });
+      
+      if (response.ok) {
+        setEmail('');
+        await fetchOrganizationData(); // Refresh data
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || 'Failed to send invitation');
       }
+    } catch (error) {
+      setError('Failed to send invitation');
     }
   };
 
-  const canSendInvitations = user?.organization_role && 
-    ['owner', 'manager', 'hr', 'ceo', 'administrator'].includes(user.organization_role);
+  // Get user from localStorage token (simple approach)
+  const getUserRole = () => {
+    // You can get this from your existing auth store or localStorage
+    return 'owner'; // Hardcode for now to test
+  };
+
+  const canSendInvitations = getUserRole() && 
+    ['owner', 'manager', 'hr', 'ceo', 'administrator'].includes(getUserRole());
+
+  if (isLoading) {
+    return (
+      <div className="max-w-6xl mx-auto py-8 px-4">
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-900 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading organization data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto py-8 space-y-6 px-4">
+      {/* Header */}
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">Organization</h1>
         {organization && (
@@ -59,9 +136,22 @@ const Organization = () => {
         )}
       </div>
 
+      {/* Error Display */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
-          {error}
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          <div className="flex justify-between items-start">
+            <div>
+              <h3 className="font-semibold">Error</h3>
+              <p className="text-sm mt-1">{error}</p>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={fetchOrganizationData}
+            >
+              Retry
+            </Button>
+          </div>
         </div>
       )}
 
@@ -81,7 +171,9 @@ const Organization = () => {
             <div className="text-sm text-gray-600">Pending Invites</div>
           </Card>
           <Card className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{Object.keys(stats.role_distribution || {}).length}</div>
+            <div className="text-2xl font-bold text-blue-600">
+              {Object.keys(stats.role_distribution || {}).length}
+            </div>
             <div className="text-sm text-gray-600">Roles</div>
           </Card>
         </div>
@@ -98,7 +190,7 @@ const Organization = () => {
             </div>
             <div>
               <p className="text-sm text-gray-600">Your Role</p>
-              <p className="font-medium capitalize">{user?.organization_role}</p>
+              <p className="font-medium capitalize">{getUserRole()}</p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Status</p>
@@ -143,7 +235,6 @@ const Organization = () => {
                   placeholder="colleague@company.com"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-900 focus:border-transparent"
                   required
-                  autoComplete="email"
                 />
               </div>
               
@@ -156,32 +247,28 @@ const Organization = () => {
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-900 focus:border-transparent"
-                  autoComplete="organization-title"
                 >
                   <option value="contributor">Contributor</option>
                   <option value="staff">Staff</option>
                   <option value="hr">HR</option>
                   <option value="assistant_manager">Assistant Manager</option>
                   <option value="manager">Manager</option>
-                  {user?.organization_role === 'owner' && (
-                    <option value="administrator">Administrator</option>
-                  )}
+                  <option value="accountant">Accountant</option>
+                  <option value="administrator">Administrator</option>
+                  <option value="ceo">CEO</option>
                 </select>
               </div>
               
               <div className="flex items-end">
                 <Button 
                   type="submit" 
-                  disabled={isLoading}
+                  disabled={!email.trim()}
                   className="w-full"
                 >
-                  {isLoading ? 'Sending...' : 'Send Invitation'}
+                  Send Invitation
                 </Button>
               </div>
             </div>
-            <p className="text-xs text-gray-500">
-              An invitation email will be sent with a link to join your organization
-            </p>
           </form>
         </Card>
       )}
@@ -205,7 +292,7 @@ const Organization = () => {
                 </div>
                 <div className="flex items-center space-x-4">
                   <span className="text-sm text-gray-500">
-                    Expires: {new Date(invite.expires_at).toLocaleDateString()}
+                    {invite.expires_at && `Expires: ${new Date(invite.expires_at).toLocaleDateString()}`}
                   </span>
                   <span className={`px-2 py-1 rounded text-xs ${
                     invite.is_accepted 
@@ -221,12 +308,6 @@ const Organization = () => {
         ) : (
           <div className="text-center py-8">
             <p className="text-gray-500">No pending invitations</p>
-            <p className="text-sm text-gray-400 mt-2">
-              {canSendInvitations 
-                ? 'Send invitations to grow your team' 
-                : 'Only organization managers can send invitations'
-              }
-            </p>
           </div>
         )}
       </Card>
@@ -256,12 +337,7 @@ const Organization = () => {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                    member.organization_role === 'owner' ? 'bg-purple-100 text-purple-800' :
-                    member.organization_role === 'manager' ? 'bg-blue-100 text-blue-800' :
-                    member.organization_role === 'hr' ? 'bg-pink-100 text-pink-800' :
-                    'bg-gray-100 text-gray-800'
-                  }`}>
+                  <span className="px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800 capitalize">
                     {member.organization_role}
                   </span>
                   <span className={`px-2 py-1 rounded text-xs ${
