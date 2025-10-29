@@ -14,17 +14,35 @@ const ChatApp = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [showMessageMenu, setShowMessageMenu] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null); // NEW: Current user state
 
   const BASE_URL = 'http://localhost:9000';
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
+    loadCurrentUser();
     loadRooms();
   }, []);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // NEW: Load current user
+  const loadCurrentUser = async () => {
+    try {
+      // Try to get user from your auth API
+      const userData = await chatApi.getCurrentUser();
+      setCurrentUser(userData);
+    } catch (error) {
+      console.error('Failed to load current user:', error);
+      // If no auth endpoint, you can get from localStorage or context
+      const userEmail = localStorage.getItem('user_email');
+      if (userEmail) {
+        setCurrentUser({ email: userEmail });
+      }
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -208,6 +226,31 @@ const ChatApp = () => {
     setShowMessageMenu(null);
   };
 
+  // Check if message is from current user
+  const isOwnMessage = (message) => {
+    if (!currentUser || !message.user) return false;
+    return message.user.email === currentUser.email;
+  };
+
+  // Get display name for user
+  const getDisplayName = (user) => {
+    if (!user) return 'Unknown';
+    
+    // Prefer full name, then username, then email
+    if (user.full_name) return user.full_name;
+    if (user.username) return user.username;
+    if (user.email) return user.email.split('@')[0]; // Just the username part of email
+    return 'Unknown';
+  };
+
+  // Get user initials for avatar
+  const getUserInitials = (user) => {
+    if (!user) return 'U';
+    
+    const displayName = getDisplayName(user);
+    return displayName.charAt(0).toUpperCase();
+  };
+
   // File Upload Modal Component
   const FileUploadModal = () => {
     const [file, setFile] = useState(null);
@@ -327,7 +370,7 @@ const ChatApp = () => {
         <div className="flex justify-between items-start">
           <div className="flex-1">
             <div className="text-sm text-blue-700 font-medium mb-1">
-              Replying to {replyingTo.user?.email}
+              Replying to {getDisplayName(replyingTo.user)}
             </div>
             <div className="text-sm text-blue-600 truncate">
               {replyingTo.content}
@@ -348,8 +391,7 @@ const ChatApp = () => {
 
   // Message Menu Component
   const MessageMenu = ({ message, onClose }) => {
-    // In a real app, you'd get this from your auth context
-    const isOwnMessage = true; // Replace with actual user check
+    const ownMessage = isOwnMessage(message);
 
     return (
       <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
@@ -367,7 +409,7 @@ const ChatApp = () => {
             <span>Reply</span>
           </button>
           
-          {isOwnMessage && (
+          {ownMessage && (
             <>
               <button
                 onClick={() => {
@@ -411,11 +453,11 @@ const ChatApp = () => {
     const fileUrl = getFileUrl(message?.file_url);
     const fileSize = message?.file_size;
     const content = message?.content || '';
-    const userEmail = message?.user?.email || 'Unknown';
+    const user = message?.user;
     const timestamp = message?.timestamp;
     const replyTo = message?.reply_to;
     const isEdited = message?.is_edited;
-    const isOwnMessage = true; // Replace with actual user check
+    const ownMessage = isOwnMessage(message);
 
     const formatTime = (timestamp) => {
       return new Date(timestamp).toLocaleTimeString([], { 
@@ -425,23 +467,30 @@ const ChatApp = () => {
     };
 
     return (
-      <div className="flex space-x-3 px-4 py-2 hover:bg-gray-50 group relative">
+      <div className={`flex space-x-3 px-4 py-2 hover:bg-gray-50 group relative ${
+        ownMessage ? 'bg-blue-50' : ''
+      }`}>
         <div className="flex-shrink-0">
-          <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-            {userEmail.charAt(0).toUpperCase()}
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold ${
+            ownMessage ? 'bg-green-500' : 'bg-purple-500'
+          }`}>
+            {getUserInitials(user)}
           </div>
         </div>
         <div className="flex-1 min-w-0">
           {/* Reply Preview */}
           {replyTo && (
             <div className="mb-2 text-sm text-gray-500 border-l-2 border-gray-300 pl-2">
-              Replying to <span className="font-medium">{replyTo.user?.email}</span>: {replyTo.content}
+              Replying to <span className="font-medium">{getDisplayName(replyTo.user)}</span>: {replyTo.content}
             </div>
           )}
           
           <div className="flex items-baseline space-x-2">
             <span className="font-semibold text-gray-900 text-sm">
-              {userEmail}
+              {getDisplayName(user)}
+              {ownMessage && (
+                <span className="text-xs text-green-600 ml-1">(You)</span>
+              )}
             </span>
             <span className="text-xs text-gray-500">
               {timestamp ? formatTime(timestamp) : ''}
@@ -590,6 +639,11 @@ const ChatApp = () => {
       <div className="w-64 bg-purple-700 text-white">
         <div className="p-4 border-b border-purple-600">
           <h1 className="text-xl font-bold">Chat Rooms</h1>
+          {currentUser && (
+            <div className="text-sm text-purple-200 mt-1">
+              Welcome, {getDisplayName(currentUser)}
+            </div>
+          )}
         </div>
         <div className="p-2 space-y-1">
           {Array.isArray(rooms) && rooms.map(room => (
@@ -679,7 +733,7 @@ const ChatApp = () => {
                       editingMessage 
                         ? "Edit your message..." 
                         : replyingTo 
-                        ? `Reply to ${replyingTo.user?.email}...` 
+                        ? `Reply to ${getDisplayName(replyingTo.user)}...` 
                         : `Message #${currentRoom.title || 'room'}`
                     }
                     className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
@@ -748,6 +802,9 @@ const ChatApp = () => {
               </div>
               <h2 className="text-xl font-semibold text-gray-900 mb-2">Welcome to Chat</h2>
               <p className="text-gray-500">Select a room to start chatting</p>
+              {currentUser && (
+                <p className="text-sm text-gray-400 mt-2">Logged in as {getDisplayName(currentUser)}</p>
+              )}
             </div>
           </div>
         )}

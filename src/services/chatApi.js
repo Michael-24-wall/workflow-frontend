@@ -57,7 +57,7 @@ export const chatApi = {
     body: JSON.stringify(data),
   }),
   
-  // Message Actions (NEW)
+  // Message Actions
   updateMessage: (messageId, data) => apiRequest(`/messages/${messageId}/`, {
     method: 'PUT',
     body: JSON.stringify(data),
@@ -80,8 +80,9 @@ export const chatApi = {
     });
   },
 
-  // User Profile
+  // User Profile & Current User
   getUserProfile: () => apiRequest('/user-profile/'),
+  getCurrentUser: () => apiRequest('/user-profile/'), // Using the same endpoint as getUserProfile
   updateProfile: (data) => apiRequest('/user-profile/', {
     method: 'PUT',
     body: JSON.stringify(data),
