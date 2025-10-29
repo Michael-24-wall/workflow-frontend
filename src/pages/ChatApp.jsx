@@ -125,7 +125,6 @@ const ChatApp = () => {
     if (!editContent.trim() || !editingMessage) return;
 
     try {
-      // You'll need to add this endpoint to your Django API
       await chatApi.updateMessage(editingMessage.id, {
         content: editContent.trim()
       });
@@ -142,7 +141,6 @@ const ChatApp = () => {
     if (!window.confirm('Are you sure you want to delete this message?')) return;
 
     try {
-      // You'll need to add this endpoint to your Django API
       await chatApi.deleteMessage(messageId);
       setShowMessageMenu(null);
       loadMessages(currentRoom.id);
@@ -350,7 +348,8 @@ const ChatApp = () => {
 
   // Message Menu Component
   const MessageMenu = ({ message, onClose }) => {
-    const isOwnMessage = message.user?.email === 'current_user_email'; // You'll need to get current user email
+    // In a real app, you'd get this from your auth context
+    const isOwnMessage = true; // Replace with actual user check
 
     return (
       <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
@@ -416,7 +415,7 @@ const ChatApp = () => {
     const timestamp = message?.timestamp;
     const replyTo = message?.reply_to;
     const isEdited = message?.is_edited;
-    const isOwnMessage = userEmail === 'current_user_email'; // Replace with actual current user check
+    const isOwnMessage = true; // Replace with actual user check
 
     const formatTime = (timestamp) => {
       return new Date(timestamp).toLocaleTimeString([], { 
