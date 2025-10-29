@@ -14,7 +14,7 @@ const ChatApp = () => {
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [showMessageMenu, setShowMessageMenu] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null); // NEW: Current user state
+  const [currentUser, setCurrentUser] = useState(null);
 
   const BASE_URL = 'http://localhost:9000';
   const messagesEndRef = useRef(null);
@@ -28,24 +28,50 @@ const ChatApp = () => {
     scrollToBottom();
   }, [messages]);
 
-  // NEW: Load current user
+  // Load current user with better error handling
   const loadCurrentUser = async () => {
     try {
-      // Try to get user from your auth API
       const userData = await chatApi.getCurrentUser();
-      setCurrentUser(userData);
+      console.log('Current user data:', userData);
+      
+      // Handle different response formats
+      if (userData && userData.user) {
+        setCurrentUser(userData.user);
+      } else if (userData && (userData.email || userData.user_email)) {
+        // Handle Django serializer format
+        setCurrentUser({
+          id: userData.id,
+          email: userData.user_email || userData.email,
+          username: userData.user_name || userData.username,
+          full_name: userData.user_name || userData.full_name,
+          first_name: userData.first_name,
+          last_name: userData.last_name
+        });
+      } else {
+        // Fallback to localStorage
+        const userEmail = localStorage.getItem('user_email') || 'user@example.com';
+        setCurrentUser({ 
+          email: userEmail,
+          username: userEmail.split('@')[0],
+          full_name: userEmail.split('@')[0] 
+        });
+      }
     } catch (error) {
       console.error('Failed to load current user:', error);
-      // If no auth endpoint, you can get from localStorage or context
-      const userEmail = localStorage.getItem('user_email');
-      if (userEmail) {
-        setCurrentUser({ email: userEmail });
-      }
+      // Use mock data for testing
+      const userEmail = localStorage.getItem('user_email') || 'user@example.com';
+      setCurrentUser({
+        email: userEmail,
+        username: userEmail.split('@')[0],
+        full_name: userEmail.split('@')[0]
+      });
     }
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
   };
 
   const loadRooms = async () => {
@@ -94,6 +120,7 @@ const ChatApp = () => {
   const loadMessages = async (roomId) => {
     try {
       const data = await chatApi.getMessages(roomId);
+      console.log('Messages data:', data);
       
       if (Array.isArray(data)) {
         setMessages(data);
@@ -198,11 +225,15 @@ const ChatApp = () => {
       return fileUrl;
     }
     
+    if (fileUrl.startsWith('/media/')) {
+      return `${BASE_URL}${fileUrl}`;
+    }
+    
     if (fileUrl.startsWith('/')) {
       return `${BASE_URL}${fileUrl}`;
     }
     
-    return `${BASE_URL}/${fileUrl}`;
+    return `${BASE_URL}/media/${fileUrl}`;
   };
 
   const cancelReply = () => {
@@ -226,29 +257,110 @@ const ChatApp = () => {
     setShowMessageMenu(null);
   };
 
-  // Check if message is from current user
+  // Check if message is from current user - FIXED with debug logging
   const isOwnMessage = (message) => {
-    if (!currentUser || !message.user) return false;
-    return message.user.email === currentUser.email;
-  };
-
-  // Get display name for user
-  const getDisplayName = (user) => {
-    if (!user) return 'Unknown';
+    if (!currentUser) {
+      console.log('❌ No current user');
+      return false;
+    }
+    if (!message.user) {
+      console.log('❌ No message user:', message);
+      return false;
+    }
     
-    // Prefer full name, then username, then email
-    if (user.full_name) return user.full_name;
-    if (user.username) return user.username;
-    if (user.email) return user.email.split('@')[0]; // Just the username part of email
-    return 'Unknown';
+    console.log('🔍 Comparing users:', {
+      currentUser: currentUser,
+      messageUser: message.user
+    });
+    
+    // Compare by email or ID - handle both Django serializer format and direct user object
+    const messageUserEmail = message.user.user_email || message.user.email;
+    const currentUserEmail = currentUser.user_email || currentUser.email;
+    
+    console.log('📧 Email comparison:', {
+      messageUserEmail,
+      currentUserEmail,
+      isMatch: messageUserEmail && currentUserEmail && messageUserEmail === currentUserEmail
+    });
+    
+    if (messageUserEmail && currentUserEmail) {
+      const isMatch = messageUserEmail === currentUserEmail;
+      console.log('✅ Email match result:', isMatch);
+      return isMatch;
+    }
+    
+    if (message.user.id && currentUser.id) {
+      const isMatch = message.user.id === currentUser.id;
+      console.log('✅ ID match result:', isMatch);
+      return isMatch;
+    }
+    
+    console.log('❌ No match found');
+    return false;
   };
 
-  // Get user initials for avatar
+  // Get display name for user - IMPROVED with better fallbacks
+  const getDisplayName = (user, isOwnMessage = false) => {
+    if (!user) {
+      console.log('❌ No user provided to getDisplayName');
+      return 'Unknown User';
+    }
+    
+    console.log('🔍 getDisplayName user object:', user);
+    
+    // If it's your own message, return "You"
+    if (isOwnMessage) {
+      return 'You';
+    }
+    
+    // Check different possible fields from Django serializer
+    if (user.user_name && user.user_name.trim() && user.user_name !== 'Unknown') {
+      console.log('✅ Using user_name:', user.user_name);
+      return user.user_name;
+    }
+    if (user.full_name && user.full_name.trim() && user.full_name !== 'Unknown') {
+      console.log('✅ Using full_name:', user.full_name);
+      return user.full_name;
+    }
+    if (user.username && user.username.trim() && user.username !== 'Unknown') {
+      console.log('✅ Using username:', user.username);
+      return user.username;
+    }
+    if (user.first_name && user.last_name) {
+      const name = `${user.first_name} ${user.last_name}`.trim();
+      if (name) {
+        console.log('✅ Using first_name + last_name:', name);
+        return name;
+      }
+    }
+    if (user.first_name && user.first_name.trim()) {
+      console.log('✅ Using first_name:', user.first_name);
+      return user.first_name;
+    }
+    if (user.user_email && user.user_email.trim()) {
+      console.log('✅ Using user_email prefix:', user.user_email.split('@')[0]);
+      return user.user_email.split('@')[0];
+    }
+    if (user.email && user.email.trim()) {
+      console.log('✅ Using email prefix:', user.email.split('@')[0]);
+      return user.email.split('@')[0];
+    }
+    
+    console.log('❌ No valid name field found, using fallback');
+    return 'User';
+  };
+
+  // Get user initials for avatar - IMPROVED
   const getUserInitials = (user) => {
-    if (!user) return 'U';
+    if (!user) {
+      console.log('❌ No user for initials');
+      return 'U';
+    }
     
     const displayName = getDisplayName(user);
-    return displayName.charAt(0).toUpperCase();
+    const initials = displayName.charAt(0).toUpperCase();
+    console.log('🔤 User initials:', { displayName, initials });
+    return initials;
   };
 
   // File Upload Modal Component
@@ -443,7 +555,7 @@ const ChatApp = () => {
     );
   };
 
-  // Message Component
+  // Message Component - IMPROVED with better debugging
   const Message = ({ message }) => {
     const [imageLoaded, setImageLoaded] = useState(false);
     const [imageError, setImageError] = useState(false);
@@ -458,6 +570,13 @@ const ChatApp = () => {
     const replyTo = message?.reply_to;
     const isEdited = message?.is_edited;
     const ownMessage = isOwnMessage(message);
+
+    console.log('📨 Message component:', { 
+      messageId: message?.id,
+      user: user,
+      ownMessage,
+      content 
+    });
 
     const formatTime = (timestamp) => {
       return new Date(timestamp).toLocaleTimeString([], { 
@@ -487,10 +606,7 @@ const ChatApp = () => {
           
           <div className="flex items-baseline space-x-2">
             <span className="font-semibold text-gray-900 text-sm">
-              {getDisplayName(user)}
-              {ownMessage && (
-                <span className="text-xs text-green-600 ml-1">(You)</span>
-              )}
+              {getDisplayName(user, ownMessage)}
             </span>
             <span className="text-xs text-gray-500">
               {timestamp ? formatTime(timestamp) : ''}
@@ -650,7 +766,7 @@ const ChatApp = () => {
             <div
               key={room.id}
               className={`p-3 rounded cursor-pointer transition-colors ${
-                currentRoom?.id === room.id
+                currentRoom && currentRoom.id === room.id
                   ? 'bg-white text-purple-700'
                   : 'text-purple-100 hover:bg-purple-600'
               }`}
