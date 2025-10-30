@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
+import useAuthStore from '../stores/authStore';
 import { chatApi } from '../services/chatApi';
 
 const RoomManagement = () => {
+  const { user } = useAuthStore();
   const [rooms, setRooms] = useState([]);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [formData, setFormData] = useState({
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newRoom, setNewRoom] = useState({
     name: '',
     title: '',
     description: '',
-    is_private: false,
-    max_members: 100
+    privacy_level: 'public'
   });
 
   useEffect(() => {
@@ -28,12 +29,21 @@ const RoomManagement = () => {
   const createRoom = async (e) => {
     e.preventDefault();
     try {
-      await chatApi.createRoom(formData);
-      setShowCreateForm(false);
-      setFormData({ name: '', title: '', description: '', is_private: false, max_members: 100 });
+      await chatApi.createRoom(newRoom);
+      setShowCreateModal(false);
+      setNewRoom({ name: '', title: '', description: '', privacy_level: 'public' });
       loadRooms();
     } catch (error) {
       console.error('Failed to create room:', error);
+    }
+  };
+
+  const joinRoom = async (roomId) => {
+    try {
+      await chatApi.joinRoom(roomId);
+      loadRooms();
+    } catch (error) {
+      console.error('Failed to join room:', error);
     }
   };
 
@@ -46,132 +56,133 @@ const RoomManagement = () => {
     }
   };
 
+  if (!user) {
+    return <div>Please log in to manage rooms</div>;
+  }
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-white">Room Management</h1>
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
-          >
-            Create Room
-          </button>
-        </div>
+    <div className="container mx-auto p-6">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Chat Rooms</h1>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Create Room
+        </button>
+      </div>
 
-        {/* Create Room Modal */}
-        {showCreateForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-gray-800 rounded-lg p-6 w-96">
-              <h3 className="text-xl font-bold mb-4">Create New Room</h3>
-              <form onSubmit={createRoom} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Room Name
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Title
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({...formData, title: e.target.value})}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white"
-                    rows="3"
-                  />
-                </div>
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    checked={formData.is_private}
-                    onChange={(e) => setFormData({...formData, is_private: e.target.checked})}
-                    className="mr-2"
-                  />
-                  <label className="text-sm text-gray-300">Private Room</label>
-                </div>
-                <div className="flex justify-end space-x-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowCreateForm(false)}
-                    className="px-4 py-2 text-gray-300 hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-                  >
-                    Create
-                  </button>
-                </div>
-              </form>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {rooms.map(room => (
+          <div key={room.id} className="bg-white border rounded-lg p-4 shadow-sm">
+            <h3 className="font-semibold text-lg mb-2">{room.title}</h3>
+            <p className="text-gray-600 text-sm mb-3">{room.description}</p>
+            
+            <div className="flex justify-between items-center text-sm text-gray-500 mb-3">
+              <span>{room.member_count} members</span>
+              <span className={`px-2 py-1 rounded-full text-xs ${
+                room.privacy_level === 'public' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+              }`}>
+                {room.privacy_level}
+              </span>
             </div>
-          </div>
-        )}
 
-        {/* Rooms Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {rooms.map(room => (
-            <div key={room.id} className="bg-gray-800 rounded-lg p-6 border border-gray-700">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-xl font-semibold text-white">{room.title}</h3>
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  room.is_private 
-                    ? 'bg-yellow-900 text-yellow-200' 
-                    : 'bg-green-900 text-green-200'
-                }`}>
-                  {room.is_private ? 'Private' : 'Public'}
-                </span>
-              </div>
-              
-              <p className="text-gray-300 mb-4">{room.description}</p>
-              
-              <div className="flex justify-between items-center text-sm text-gray-400">
-                <span>{room.member_count} members</span>
-                <span>Max: {room.max_members}</span>
-              </div>
-              
-              <div className="flex justify-between items-center mt-4">
-                <span className="text-xs text-gray-500">
-                  Created by {room.created_by?.email}
-                </span>
+            <div className="flex space-x-2">
+              {room.is_member ? (
                 <button
                   onClick={() => leaveRoom(room.id)}
-                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
+                  className="flex-1 px-3 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm"
                 >
                   Leave
                 </button>
-              </div>
+              ) : (
+                <button
+                  onClick={() => joinRoom(room.id)}
+                  className="flex-1 px-3 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
+                >
+                  Join
+                </button>
+              )}
+              <button
+                onClick={() => window.location.href = `/chat?room=${room.id}`}
+                className="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
+              >
+                Enter
+              </button>
             </div>
-          ))}
-        </div>
-
-        {rooms.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-400 text-lg">No rooms yet. Create your first room!</p>
           </div>
-        )}
+        ))}
       </div>
+
+      {/* Create Room Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">Create New Room</h2>
+            <form onSubmit={createRoom}>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Room Name</label>
+                  <input
+                    type="text"
+                    value={newRoom.name}
+                    onChange={(e) => setNewRoom({...newRoom, name: e.target.value})}
+                    className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                    placeholder="room-name"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Title</label>
+                  <input
+                    type="text"
+                    value={newRoom.title}
+                    onChange={(e) => setNewRoom({...newRoom, title: e.target.value})}
+                    className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                    placeholder="Room Title"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Description</label>
+                  <textarea
+                    value={newRoom.description}
+                    onChange={(e) => setNewRoom({...newRoom, description: e.target.value})}
+                    className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                    rows="3"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Privacy</label>
+                  <select
+                    value={newRoom.privacy_level}
+                    onChange={(e) => setNewRoom({...newRoom, privacy_level: e.target.value})}
+                    className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex space-x-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Create Room
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,3 +1,4 @@
+// src/components/ChatApp.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { chatApi } from '../services/chatApi';
 
@@ -8,790 +9,277 @@ const ChatApp = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [showFileUpload, setShowFileUpload] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [replyingTo, setReplyingTo] = useState(null);
-  const [editingMessage, setEditingMessage] = useState(null);
-  const [editContent, setEditContent] = useState('');
-  const [showMessageMenu, setShowMessageMenu] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null);
-
-  const BASE_URL = 'http://localhost:9000';
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    loadCurrentUser();
-    loadRooms();
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
-  // Load current user with better error handling
-  const loadCurrentUser = async () => {
-    try {
-      const userData = await chatApi.getCurrentUser();
-      console.log('Current user data:', userData);
-      
-      // Handle different response formats
-      if (userData && userData.user) {
-        setCurrentUser(userData.user);
-      } else if (userData && (userData.email || userData.user_email)) {
-        // Handle Django serializer format
-        setCurrentUser({
-          id: userData.id,
-          email: userData.user_email || userData.email,
-          username: userData.user_name || userData.username,
-          full_name: userData.user_name || userData.full_name,
-          first_name: userData.first_name,
-          last_name: userData.last_name
-        });
-      } else {
-        // Fallback to localStorage
-        const userEmail = localStorage.getItem('user_email') || 'user@example.com';
-        setCurrentUser({ 
-          email: userEmail,
-          username: userEmail.split('@')[0],
-          full_name: userEmail.split('@')[0] 
-        });
-      }
-    } catch (error) {
-      console.error('Failed to load current user:', error);
-      // Use mock data for testing
-      const userEmail = localStorage.getItem('user_email') || 'user@example.com';
-      setCurrentUser({
-        email: userEmail,
-        username: userEmail.split('@')[0],
-        full_name: userEmail.split('@')[0]
-      });
-    }
-  };
-
-  const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  };
-
+  // Load rooms from backend
   const loadRooms = async () => {
     try {
       setLoading(true);
-      const data = await chatApi.getRooms();
-      
-      if (Array.isArray(data)) {
-        setRooms(data);
-      } else if (data && Array.isArray(data.results)) {
-        setRooms(data.results);
-      } else if (data && typeof data === 'object') {
-        if (data.data && Array.isArray(data.data)) {
-          setRooms(data.data);
-        } else {
-          setRooms([data]);
-        }
-      } else {
-        setRooms([]);
-      }
       setError(null);
-    } catch (error) {
-      console.error('Failed to load rooms:', error);
-      setError('Failed to load rooms');
+      console.log('🔄 Loading rooms from backend...');
+      
+      const roomsData = await chatApi.getRooms();
+      console.log('✅ Rooms loaded:', roomsData);
+      
+      // Handle both array and object responses
+      const roomsArray = Array.isArray(roomsData) ? roomsData : (roomsData.results || []);
+      setRooms(roomsArray);
+      
+      // Auto-select first room if none selected
+      if (roomsArray.length > 0 && !currentRoom) {
+        setCurrentRoom(roomsArray[0]);
+      }
+    } catch (err) {
+      console.error('❌ Failed to load rooms:', err);
+      setError(err.message);
       setRooms([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const joinRoom = async (roomId) => {
+  // Load messages for current room
+  const loadMessages = async (room) => {
+    if (!room) return;
+    
     try {
-      await chatApi.joinRoom(roomId);
-      const room = Array.isArray(rooms) ? rooms.find(r => r.id === roomId) : null;
-      setCurrentRoom(room);
-      loadMessages(roomId);
-      setError(null);
-      setReplyingTo(null);
-      setEditingMessage(null);
-    } catch (error) {
-      console.error('Failed to join room:', error);
-      setError('Failed to join room');
-    }
-  };
-
-  const loadMessages = async (roomId) => {
-    try {
-      const data = await chatApi.getMessages(roomId);
-      console.log('Messages data:', data);
+      console.log('🔄 Loading messages for room:', room.id);
+      const messagesData = await chatApi.getRoomMessages(room.id);
       
-      if (Array.isArray(data)) {
-        setMessages(data);
-      } else if (data && Array.isArray(data.results)) {
-        setMessages(data.results);
-      } else if (data && Array.isArray(data.messages)) {
-        setMessages(data.messages);
-      } else if (data && data.data && Array.isArray(data.data)) {
-        setMessages(data.data);
-      } else if (data && typeof data === 'object') {
-        setMessages([data]);
-      } else {
-        setMessages([]);
-      }
-    } catch (error) {
-      console.error('Failed to load messages:', error);
-      setMessages([]);
+      // Handle both array and paginated responses
+      const messagesArray = Array.isArray(messagesData) ? messagesData : (messagesData.results || []);
+      setMessages(messagesArray);
+    } catch (err) {
+      console.error('❌ Failed to load messages:', err);
+      setError(err.message);
     }
   };
 
-  const sendMessage = async (e) => {
-    e.preventDefault();
-    if ((!newMessage.trim() && !replyingTo) || !currentRoom) return;
-
+  // Send message
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !currentRoom || sending) return;
+    
     try {
-      const messageData = {
-        room: currentRoom.id,
-        content: newMessage.trim(),
-        message_type: 'text'
-      };
-
-      if (replyingTo) {
-        messageData.reply_to = replyingTo.id;
-      }
-
-      await chatApi.sendMessage(messageData);
+      setSending(true);
+      console.log('🔄 Sending message...');
+      await chatApi.sendMessage(currentRoom.id, newMessage.trim());
       setNewMessage('');
-      setReplyingTo(null);
-      loadMessages(currentRoom.id);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      setError('Failed to send message');
-    }
-  };
-
-  const updateMessage = async () => {
-    if (!editContent.trim() || !editingMessage) return;
-
-    try {
-      await chatApi.updateMessage(editingMessage.id, {
-        content: editContent.trim()
-      });
-      setEditingMessage(null);
-      setEditContent('');
-      loadMessages(currentRoom.id);
-    } catch (error) {
-      console.error('Failed to update message:', error);
-      setError('Failed to update message');
-    }
-  };
-
-  const deleteMessage = async (messageId) => {
-    if (!window.confirm('Are you sure you want to delete this message?')) return;
-
-    try {
-      await chatApi.deleteMessage(messageId);
-      setShowMessageMenu(null);
-      loadMessages(currentRoom.id);
-    } catch (error) {
-      console.error('Failed to delete message:', error);
-      setError('Failed to delete message');
-    }
-  };
-
-  const uploadFile = async (file, description = '') => {
-    if (!currentRoom) return;
-    
-    try {
-      setUploading(true);
-      await chatApi.uploadFile(file, currentRoom.id, description);
-      setShowFileUpload(false);
-      loadMessages(currentRoom.id);
-      setError(null);
-    } catch (error) {
-      console.error('Failed to upload file:', error);
-      setError('Failed to upload file');
+      // Reload messages to see the new one
+      await loadMessages(currentRoom);
+    } catch (err) {
+      console.error('❌ Failed to send message:', err);
+      setError(err.message);
     } finally {
-      setUploading(false);
+      setSending(false);
     }
   };
 
-  const isImageFile = (fileName) => {
-    if (!fileName) return false;
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-    return imageExtensions.some(ext => fileName.toLowerCase().endsWith(ext));
+  // Handle key press (Enter to send)
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
-  const getFileUrl = (fileUrl) => {
-    if (!fileUrl) return '';
-    
-    if (fileUrl.startsWith('http')) {
-      return fileUrl;
-    }
-    
-    if (fileUrl.startsWith('/media/')) {
-      return `${BASE_URL}${fileUrl}`;
-    }
-    
-    if (fileUrl.startsWith('/')) {
-      return `${BASE_URL}${fileUrl}`;
-    }
-    
-    return `${BASE_URL}/media/${fileUrl}`;
+  // Scroll to bottom
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const cancelReply = () => {
-    setReplyingTo(null);
-  };
-
-  const cancelEdit = () => {
-    setEditingMessage(null);
-    setEditContent('');
-  };
-
-  const startReply = (message) => {
-    setReplyingTo(message);
-    setEditingMessage(null);
-  };
-
-  const startEdit = (message) => {
-    setEditingMessage(message);
-    setEditContent(message.content);
-    setReplyingTo(null);
-    setShowMessageMenu(null);
-  };
-
-  // Check if message is from current user - FIXED with debug logging
-  const isOwnMessage = (message) => {
-    if (!currentUser) {
-      console.log('❌ No current user');
-      return false;
-    }
-    if (!message.user) {
-      console.log('❌ No message user:', message);
-      return false;
-    }
+  // Create new room
+  const createNewRoom = async () => {
+    const roomName = prompt('Enter room name (URL-friendly, no spaces):');
+    const roomTitle = prompt('Enter room title:');
     
-    console.log('🔍 Comparing users:', {
-      currentUser: currentUser,
-      messageUser: message.user
-    });
-    
-    // Compare by email or ID - handle both Django serializer format and direct user object
-    const messageUserEmail = message.user.user_email || message.user.email;
-    const currentUserEmail = currentUser.user_email || currentUser.email;
-    
-    console.log('📧 Email comparison:', {
-      messageUserEmail,
-      currentUserEmail,
-      isMatch: messageUserEmail && currentUserEmail && messageUserEmail === currentUserEmail
-    });
-    
-    if (messageUserEmail && currentUserEmail) {
-      const isMatch = messageUserEmail === currentUserEmail;
-      console.log('✅ Email match result:', isMatch);
-      return isMatch;
-    }
-    
-    if (message.user.id && currentUser.id) {
-      const isMatch = message.user.id === currentUser.id;
-      console.log('✅ ID match result:', isMatch);
-      return isMatch;
-    }
-    
-    console.log('❌ No match found');
-    return false;
-  };
-
-  // Get display name for user - IMPROVED with better fallbacks
-  const getDisplayName = (user, isOwnMessage = false) => {
-    if (!user) {
-      console.log('❌ No user provided to getDisplayName');
-      return 'Unknown User';
-    }
-    
-    console.log('🔍 getDisplayName user object:', user);
-    
-    // If it's your own message, return "You"
-    if (isOwnMessage) {
-      return 'You';
-    }
-    
-    // Check different possible fields from Django serializer
-    if (user.user_name && user.user_name.trim() && user.user_name !== 'Unknown') {
-      console.log('✅ Using user_name:', user.user_name);
-      return user.user_name;
-    }
-    if (user.full_name && user.full_name.trim() && user.full_name !== 'Unknown') {
-      console.log('✅ Using full_name:', user.full_name);
-      return user.full_name;
-    }
-    if (user.username && user.username.trim() && user.username !== 'Unknown') {
-      console.log('✅ Using username:', user.username);
-      return user.username;
-    }
-    if (user.first_name && user.last_name) {
-      const name = `${user.first_name} ${user.last_name}`.trim();
-      if (name) {
-        console.log('✅ Using first_name + last_name:', name);
-        return name;
-      }
-    }
-    if (user.first_name && user.first_name.trim()) {
-      console.log('✅ Using first_name:', user.first_name);
-      return user.first_name;
-    }
-    if (user.user_email && user.user_email.trim()) {
-      console.log('✅ Using user_email prefix:', user.user_email.split('@')[0]);
-      return user.user_email.split('@')[0];
-    }
-    if (user.email && user.email.trim()) {
-      console.log('✅ Using email prefix:', user.email.split('@')[0]);
-      return user.email.split('@')[0];
-    }
-    
-    console.log('❌ No valid name field found, using fallback');
-    return 'User';
-  };
-
-  // Get user initials for avatar - IMPROVED
-  const getUserInitials = (user) => {
-    if (!user) {
-      console.log('❌ No user for initials');
-      return 'U';
-    }
-    
-    const displayName = getDisplayName(user);
-    const initials = displayName.charAt(0).toUpperCase();
-    console.log('🔤 User initials:', { displayName, initials });
-    return initials;
-  };
-
-  // File Upload Modal Component
-  const FileUploadModal = () => {
-    const [file, setFile] = useState(null);
-    const [description, setDescription] = useState('');
-    const [previewUrl, setPreviewUrl] = useState('');
-
-    const handleFileSelect = (e) => {
-      const selectedFile = e.target.files[0];
-      if (selectedFile) {
-        if (selectedFile.size > 10 * 1024 * 1024) {
-          alert('File size must be less than 10MB');
-          return;
-        }
-        setFile(selectedFile);
+    if (roomName && roomTitle) {
+      try {
+        // Convert to URL-friendly name
+        const urlFriendlyName = roomName
+          .toLowerCase()
+          .replace(/\s+/g, '-')
+          .replace(/[^a-z0-9-]/g, '');
         
-        if (isImageFile(selectedFile.name)) {
-          const url = URL.createObjectURL(selectedFile);
-          setPreviewUrl(url);
-        } else {
-          setPreviewUrl('');
-        }
+        await chatApi.createRoom({
+          name: urlFriendlyName,
+          title: roomTitle,
+          description: 'New chat room',
+          privacy_level: 'public'
+        });
+        loadRooms(); // Reload rooms list
+      } catch (err) {
+        console.error('❌ Failed to create room:', err);
+        setError(err.response?.data?.detail || err.message || 'Failed to create room');
       }
-    };
-
-    const handleUpload = async () => {
-      if (!file) return;
-      await uploadFile(file, description);
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-
-    const handleClose = () => {
-      setShowFileUpload(false);
-      if (previewUrl) {
-        URL.revokeObjectURL(previewUrl);
-      }
-    };
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-        <div className="bg-white rounded-lg shadow-xl w-96 border border-gray-200">
-          <div className="p-6 border-b border-gray-100">
-            <h3 className="text-lg font-semibold text-gray-900">
-              {file && isImageFile(file.name) ? 'Share Image' : 'Upload File'}
-            </h3>
-          </div>
-          
-          <div className="p-6 space-y-4">
-            {previewUrl && (
-              <div className="flex justify-center">
-                <img 
-                  src={previewUrl} 
-                  alt="Preview" 
-                  className="max-h-48 max-w-full rounded-lg border border-gray-300 object-contain"
-                />
-              </div>
-            )}
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Select {file && isImageFile(file.name) ? 'Image' : 'File'}
-              </label>
-              <input
-                type="file"
-                onChange={handleFileSelect}
-                accept=".jpg,.jpeg,.png,.gif,.webp,.pdf,.txt,.doc,.docx,.xls,.xlsx,.zip"
-                className="w-full text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600"
-              />
-              {file && (
-                <p className="mt-2 text-sm text-gray-600">
-                  {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                </p>
-              )}
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Description (Optional)
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows="3"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder={file && isImageFile(file.name) ? "Add a caption..." : "Add a description..."}
-              />
-            </div>
-          </div>
-          
-          <div className="flex justify-end space-x-3 px-6 py-4 bg-gray-50 rounded-b-lg">
-            <button
-              onClick={handleClose}
-              className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleUpload}
-              disabled={!file || uploading}
-              className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
-              {uploading ? 'Uploading...' : file && isImageFile(file.name) ? 'Share Image' : 'Upload File'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    }
   };
 
-  // Reply Preview Component
-  const ReplyPreview = () => {
-    if (!replyingTo) return null;
-
-    return (
-      <div className="bg-blue-50 border-l-4 border-blue-500 p-3 mb-3 rounded-r-lg">
-        <div className="flex justify-between items-start">
-          <div className="flex-1">
-            <div className="text-sm text-blue-700 font-medium mb-1">
-              Replying to {getDisplayName(replyingTo.user)}
-            </div>
-            <div className="text-sm text-blue-600 truncate">
-              {replyingTo.content}
-            </div>
-          </div>
-          <button
-            onClick={cancelReply}
-            className="text-blue-500 hover:text-blue-700 ml-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    );
+  // Join room automatically when selected
+  const joinRoom = async (room) => {
+    try {
+      console.log('🔄 Joining room:', room.id);
+      await chatApi.joinRoom(room.id);
+      setCurrentRoom(room);
+      await loadMessages(room); // Load messages immediately after joining
+    } catch (err) {
+      console.error('❌ Failed to join room:', err);
+      // If join fails, still set the room but show error
+      setCurrentRoom(room);
+      setError(err.response?.data?.detail || err.message || 'Failed to join room');
+    }
   };
 
-  // Message Menu Component
-  const MessageMenu = ({ message, onClose }) => {
-    const ownMessage = isOwnMessage(message);
-
-    return (
-      <div className="absolute right-0 top-6 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-32">
-        <div className="py-1">
-          <button
-            onClick={() => {
-              startReply(message);
-              onClose();
-            }}
-            className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-            <span>Reply</span>
-          </button>
-          
-          {ownMessage && (
-            <>
-              <button
-                onClick={() => {
-                  startEdit(message);
-                  onClose();
-                }}
-                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                <span>Edit</span>
-              </button>
-              
-              <button
-                onClick={() => {
-                  deleteMessage(message.id);
-                  onClose();
-                }}
-                className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                <span>Delete</span>
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  // Message Component - IMPROVED with better debugging
-  const Message = ({ message }) => {
-    const [imageLoaded, setImageLoaded] = useState(false);
-    const [imageError, setImageError] = useState(false);
-
-    const messageType = message?.message_type || 'text';
-    const fileName = message?.file_name;
-    const fileUrl = getFileUrl(message?.file_url);
-    const fileSize = message?.file_size;
-    const content = message?.content || '';
-    const user = message?.user;
-    const timestamp = message?.timestamp;
-    const replyTo = message?.reply_to;
-    const isEdited = message?.is_edited;
-    const ownMessage = isOwnMessage(message);
-
-    console.log('📨 Message component:', { 
-      messageId: message?.id,
-      user: user,
-      ownMessage,
-      content 
-    });
-
-    const formatTime = (timestamp) => {
+  // Format time
+  const formatTime = (timestamp) => {
+    try {
       return new Date(timestamp).toLocaleTimeString([], { 
         hour: '2-digit', 
         minute: '2-digit' 
       });
-    };
-
-    return (
-      <div className={`flex space-x-3 px-4 py-2 hover:bg-gray-50 group relative ${
-        ownMessage ? 'bg-blue-50' : ''
-      }`}>
-        <div className="flex-shrink-0">
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold ${
-            ownMessage ? 'bg-green-500' : 'bg-purple-500'
-          }`}>
-            {getUserInitials(user)}
-          </div>
-        </div>
-        <div className="flex-1 min-w-0">
-          {/* Reply Preview */}
-          {replyTo && (
-            <div className="mb-2 text-sm text-gray-500 border-l-2 border-gray-300 pl-2">
-              Replying to <span className="font-medium">{getDisplayName(replyTo.user)}</span>: {replyTo.content}
-            </div>
-          )}
-          
-          <div className="flex items-baseline space-x-2">
-            <span className="font-semibold text-gray-900 text-sm">
-              {getDisplayName(user, ownMessage)}
-            </span>
-            <span className="text-xs text-gray-500">
-              {timestamp ? formatTime(timestamp) : ''}
-            </span>
-            {isEdited && (
-              <span className="text-xs text-gray-400">(edited)</span>
-            )}
-          </div>
-          
-          {/* Image Message */}
-          {messageType === 'file' && isImageFile(fileName) ? (
-            <div className="mt-1">
-              <div className="rounded-lg border border-gray-200 p-2 max-w-md bg-white">
-                {!imageError ? (
-                  <>
-                    <img 
-                      src={fileUrl} 
-                      alt={content || 'Shared image'}
-                      className="rounded-lg max-w-full max-h-80 object-contain"
-                      onLoad={() => setImageLoaded(true)}
-                      onError={() => setImageError(true)}
-                    />
-                    {!imageLoaded && (
-                      <div className="flex items-center justify-center h-32 bg-gray-100 rounded-lg">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div>
-                        <span className="ml-2 text-gray-500">Loading image...</span>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="text-center text-gray-500 p-4">
-                    <svg className="w-8 h-8 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Failed to load image
-                  </div>
-                )}
-                <div className="mt-2 flex justify-between items-center">
-                  <a 
-                    href={fileUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:text-blue-600 text-xs font-medium"
-                  >
-                    Download
-                  </a>
-                  {fileSize && (
-                    <span className="text-xs text-gray-400">
-                      {Math.round(fileSize / 1024)} KB
-                    </span>
-                  )}
-                </div>
-              </div>
-              {content && content !== `Shared file: ${fileName}` && (
-                <p className="mt-2 text-gray-800 text-sm">{content}</p>
-              )}
-            </div>
-          ) : 
-          
-          /* File Message (non-image) */
-          messageType === 'file' ? (
-            <div className="mt-1 p-3 bg-white rounded-lg border border-gray-200 max-w-md">
-              <div className="flex items-center space-x-3">
-                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                <div className="flex-1">
-                  <a 
-                    href={fileUrl} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:text-blue-600 font-medium block text-sm"
-                  >
-                    {fileName || 'Download file'}
-                  </a>
-                  {fileSize && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      {Math.round(fileSize / 1024)} KB
-                    </div>
-                  )}
-                </div>
-              </div>
-              {content && content !== `Shared file: ${fileName}` && (
-                <p className="mt-2 text-gray-800 text-sm">{content}</p>
-              )}
-            </div>
-          ) : 
-          
-          /* Text Message */
-          (
-            <div className="mt-1 text-gray-900 text-sm">
-              {content}
-            </div>
-          )}
-        </div>
-
-        {/* Message Actions Menu */}
-        <div className="absolute right-4 top-2 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            onClick={() => setShowMessageMenu(showMessageMenu === message.id ? null : message.id)}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
-            </svg>
-          </button>
-          
-          {showMessageMenu === message.id && (
-            <MessageMenu 
-              message={message} 
-              onClose={() => setShowMessageMenu(null)}
-            />
-          )}
-        </div>
-      </div>
-    );
+    } catch {
+      return 'Just now';
+    }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
-      </div>
-    );
-  }
+  // Initial load
+  useEffect(() => {
+    loadRooms();
+  }, []);
 
-  if (error && (!Array.isArray(rooms) || rooms.length === 0)) {
+  // Load messages when room changes
+  useEffect(() => {
+    if (currentRoom) {
+      loadMessages(currentRoom);
+    }
+  }, [currentRoom]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Auto-set online status
+  useEffect(() => {
+    const setOnline = async () => {
+      try {
+        await chatApi.setOnlineStatus(true);
+      } catch (err) {
+        // Ignore errors for online status
+        console.log('💡 Online status endpoint not available');
+      }
+    };
+    setOnline();
+  }, []);
+
+  if (loading && rooms.length === 0) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
         <div className="text-center">
-          <div className="text-red-500 text-lg mb-4">Error: {error}</div>
-          <button
-            onClick={loadRooms}
-            className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded transition-colors"
-          >
-            Retry
-          </button>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-lg">Loading real chat...</p>
+          <p className="text-gray-400 text-sm">Connecting to backend server</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-white text-gray-900">
+    <div className="flex h-screen bg-gray-900 text-white">
       {/* Sidebar */}
-      <div className="w-64 bg-purple-700 text-white">
-        <div className="p-4 border-b border-purple-600">
-          <h1 className="text-xl font-bold">Chat Rooms</h1>
-          {currentUser && (
-            <div className="text-sm text-purple-200 mt-1">
-              Welcome, {getDisplayName(currentUser)}
-            </div>
-          )}
+      <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col">
+        {/* Header */}
+        <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-white">💬 Real Chat</h2>
+          <button 
+            onClick={loadRooms}
+            disabled={loading}
+            className="p-2 hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
+            title="Refresh rooms"
+          >
+            {loading ? '⏳' : '🔄'}
+          </button>
         </div>
-        <div className="p-2 space-y-1">
-          {Array.isArray(rooms) && rooms.map(room => (
-            <div
-              key={room.id}
-              className={`p-3 rounded cursor-pointer transition-colors ${
-                currentRoom && currentRoom.id === room.id
-                  ? 'bg-white text-purple-700'
-                  : 'text-purple-100 hover:bg-purple-600'
-              }`}
-              onClick={() => joinRoom(room.id)}
+
+        {/* User Info */}
+        <div className="p-4 border-b border-gray-700 flex items-center space-x-3">
+          <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center font-semibold">
+            👤
+          </div>
+          <div className="flex-1">
+            <div className="font-semibold text-white">You</div>
+            <div className="text-green-400 text-sm flex items-center">
+              <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
+              Online
+            </div>
+          </div>
+        </div>
+
+        {/* Rooms Section */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+            <h3 className="text-gray-300 font-semibold text-sm uppercase tracking-wide">
+              Rooms ({rooms.length})
+            </h3>
+            <button 
+              onClick={createNewRoom}
+              className="w-6 h-6 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white text-sm font-bold transition-colors"
+              title="Create new room"
             >
-              <div className="font-medium text-sm"># {room.title || 'Untitled Room'}</div>
-              <div className="text-xs opacity-80 mt-1">{room.description || 'No description'}</div>
-              <div className="flex justify-between items-center mt-2">
-                <span className="text-xs opacity-70">
-                  {room.member_count || 0} members
-                </span>
-                {room.is_private && (
-                  <span className="text-xs bg-purple-800 text-purple-200 px-2 py-1 rounded">
-                    Private
-                  </span>
-                )}
-              </div>
-            </div>
-          ))}
+              +
+            </button>
+          </div>
           
-          {(!Array.isArray(rooms) || rooms.length === 0) && (
-            <div className="text-center text-purple-200 py-8 text-sm">
-              No rooms available
+          <div className="flex-1 overflow-y-auto">
+            {rooms.length === 0 ? (
+              <div className="p-4 text-center text-gray-400">
+                <p>No rooms yet</p>
+                <button 
+                  onClick={createNewRoom}
+                  className="mt-2 text-blue-400 hover:text-blue-300 text-sm underline"
+                >
+                  Create first room
+                </button>
+              </div>
+            ) : (
+              rooms.map(room => (
+                <div
+                  key={room.id}
+                  className={`p-3 flex items-center space-x-3 cursor-pointer border-l-4 transition-all ${
+                    currentRoom?.id === room.id 
+                      ? 'bg-gray-700 border-blue-500' 
+                      : 'border-transparent hover:bg-gray-700'
+                  }`}
+                  onClick={() => joinRoom(room)}
+                >
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-semibold">
+                    #
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-white truncate">{room.title}</div>
+                    <div className="text-gray-400 text-sm flex items-center space-x-2 mt-1">
+                      <span>{room.member_count || 1} members</span>
+                      {room.unread_count > 0 && (
+                        <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">
+                          {room.unread_count} new
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Connection Status */}
+        <div className="p-4 border-t border-gray-700">
+          <div className="text-xs text-gray-400">
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${error ? 'bg-red-500' : 'bg-green-500'}`}></div>
+              <span>{error ? 'Connection issues' : 'Connected to backend'}</span>
             </div>
-          )}
+          </div>
         </div>
       </div>
 
@@ -799,135 +287,140 @@ const ChatApp = () => {
       <div className="flex-1 flex flex-col">
         {currentRoom ? (
           <>
-            {/* Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900"># {currentRoom.title || 'Untitled Room'}</h2>
-                    <p className="text-sm text-gray-500">{currentRoom.description || 'No description'}</p>
-                  </div>
+            {/* Chat Header */}
+            <div className="bg-gray-800 border-b border-gray-700 p-4 flex justify-between items-center">
+              <div className="flex items-center space-x-3">
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold">
+                  #
                 </div>
-                <div className="flex items-center space-x-4">
-                  <span className="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-sm">
-                    {currentRoom.member_count || 0} members
-                  </span>
+                <div>
+                  <h2 className="text-xl font-bold text-white">{currentRoom.title}</h2>
+                  <p className="text-gray-400 text-sm">{currentRoom.description || 'Chat room'}</p>
                 </div>
+              </div>
+              <div className="text-gray-400 text-sm">
+                <span className="text-green-400">●</span> {currentRoom.online_count || 1} online
               </div>
             </div>
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto bg-gray-50">
-              <div className="py-4">
-                {Array.isArray(messages) && messages.map(message => (
-                  <Message key={message.id} message={message} />
-                ))}
-                
-                {(!Array.isArray(messages) || messages.length === 0) && (
-                  <div className="text-center text-gray-500 py-12">
-                    <div className="text-lg font-semibold mb-2">No messages yet</div>
-                    <p className="text-sm">Start the conversation!</p>
+            {/* Messages Container */}
+            <div className="flex-1 overflow-y-auto bg-gray-900">
+              {messages.length === 0 ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="text-center text-gray-500">
+                    <div className="text-6xl mb-4">💬</div>
+                    <h3 className="text-xl font-semibold mb-2 text-gray-300">Start the conversation</h3>
+                    <p className="text-gray-400">Send the first message in #{currentRoom.title}</p>
                   </div>
-                )}
-                <div ref={messagesEndRef} />
-              </div>
+                </div>
+              ) : (
+                <div className="p-4 space-y-4">
+                  {messages.map(message => (
+                    <div 
+                      key={message.id} 
+                      className={`flex space-x-3 ${
+                        message.is_own_message ? 'flex-row-reverse space-x-reverse' : ''
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 font-semibold text-sm ${
+                        message.is_own_message 
+                          ? 'bg-gradient-to-br from-blue-500 to-blue-600' 
+                          : 'bg-gradient-to-br from-gray-600 to-gray-700'
+                      }`}>
+                        {message.user?.display_name?.charAt(0)?.toUpperCase() || 'U'}
+                      </div>
+                      <div className={`max-w-xs lg:max-w-md rounded-2xl p-4 ${
+                        message.is_own_message 
+                          ? 'bg-gradient-to-br from-blue-600 to-blue-700 rounded-br-none' 
+                          : 'bg-gray-700 rounded-bl-none'
+                      }`}>
+                        <div className="flex items-center space-x-2 mb-2">
+                          <span className="font-semibold text-sm text-white">
+                            {message.is_own_message ? 'You' : (message.user?.display_name || 'User')}
+                          </span>
+                          <span className="text-gray-300 text-xs">
+                            {formatTime(message.timestamp)}
+                          </span>
+                        </div>
+                        <div className="text-white text-sm leading-relaxed">{message.content}</div>
+                        {message.is_edited && (
+                          <div className="text-gray-400 text-xs mt-2">(edited)</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
             </div>
-
-            {/* Reply Preview */}
-            {replyingTo && <ReplyPreview />}
 
             {/* Message Input */}
-            <div className="bg-white border-t border-gray-200 p-4">
-              <form onSubmit={editingMessage ? updateMessage : sendMessage} className="flex space-x-3">
-                <div className="flex-1 relative">
-                  <input
-                    type="text"
-                    value={editingMessage ? editContent : newMessage}
-                    onChange={(e) => editingMessage ? setEditContent(e.target.value) : setNewMessage(e.target.value)}
-                    placeholder={
-                      editingMessage 
-                        ? "Edit your message..." 
-                        : replyingTo 
-                        ? `Reply to ${getDisplayName(replyingTo.user)}...` 
-                        : `Message #${currentRoom.title || 'room'}`
-                    }
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            <div className="bg-gray-800 border-t border-gray-700 p-4">
+              <div className="flex space-x-4 items-end">
+                <div className="flex-1 bg-gray-700 rounded-xl border border-gray-600 focus-within:border-blue-500 transition-colors">
+                  <textarea
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder={`Message #${currentRoom.title}... (Press Enter to send)`}
+                    rows="1"
+                    className="w-full bg-transparent border-0 resize-none focus:ring-0 text-white placeholder-gray-400 p-3 max-h-32"
+                    style={{ minHeight: '44px' }}
+                    disabled={sending}
                   />
-                  {editingMessage && (
-                    <div className="absolute -top-8 left-0 bg-blue-50 text-blue-700 px-3 py-1 rounded text-sm">
-                      Editing message
-                      <button
-                        onClick={cancelEdit}
-                        className="ml-2 text-blue-500 hover:text-blue-700"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  )}
                 </div>
-                
-                {editingMessage ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={cancelEdit}
-                      className="px-4 py-3 text-gray-600 hover:text-gray-800 transition-colors border border-gray-300 rounded-lg hover:border-gray-400"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!editContent.trim()}
-                      className="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                    >
-                      Update
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setShowFileUpload(true)}
-                      className="px-4 py-3 text-gray-400 hover:text-gray-600 transition-colors border border-gray-300 rounded-lg hover:border-gray-400"
-                      title="Share files and images"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                      </svg>
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!newMessage.trim() && !replyingTo}
-                      className="bg-purple-500 hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-medium transition-colors"
-                    >
-                      {replyingTo ? 'Reply' : 'Send'}
-                    </button>
-                  </>
-                )}
-              </form>
+                <button 
+                  onClick={sendMessage}
+                  disabled={!newMessage.trim() || sending}
+                  className={`px-6 py-3 rounded-xl font-semibold transition-all min-w-20 ${
+                    newMessage.trim() && !sending
+                      ? 'bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white shadow-lg' 
+                      : 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                  }`}
+                >
+                  {sending ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mx-auto"></div>
+                  ) : (
+                    'Send'
+                  )}
+                </button>
+              </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="flex-1 flex items-center justify-center bg-gray-900">
             <div className="text-center">
-              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">Welcome to Chat</h2>
-              <p className="text-gray-500">Select a room to start chatting</p>
-              {currentUser && (
-                <p className="text-sm text-gray-400 mt-2">Logged in as {getDisplayName(currentUser)}</p>
+              <div className="text-8xl mb-6">💬</div>
+              <h1 className="text-4xl font-bold mb-4 text-white">Welcome to Real Chat</h1>
+              <p className="text-gray-400 mb-8 text-lg">Select a room from the sidebar to start chatting</p>
+              {rooms.length === 0 && (
+                <button 
+                  onClick={createNewRoom}
+                  className="bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-8 py-4 rounded-xl font-semibold text-lg transition-all shadow-lg"
+                >
+                  Create Your First Room
+                </button>
               )}
             </div>
           </div>
         )}
       </div>
 
-      {/* File Upload Modal */}
-      {showFileUpload && <FileUploadModal />}
+      {/* Error Toast */}
+      {error && (
+        <div className="fixed top-4 right-4 bg-red-600 text-white p-4 rounded-lg shadow-xl flex items-center space-x-4 max-w-sm z-50 border border-red-700 animate-in slide-in-from-right">
+          <div className="flex-1">
+            <div className="font-semibold">Error</div>
+            <div className="text-sm mt-1">{error}</div>
+          </div>
+          <button 
+            onClick={() => setError(null)}
+            className="hover:bg-red-700 rounded-full w-6 h-6 flex items-center justify-center transition-colors flex-shrink-0"
+          >
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 };
