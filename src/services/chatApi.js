@@ -19,14 +19,6 @@ apiClient.interceptors.request.use(
       console.log('🔑 Adding access_token to request:', token.substring(0, 10) + '...');
     } else {
       console.warn('⚠️ No access_token found for chat API request');
-      // Also check if there's any token in other locations for debugging
-      const authStorage = localStorage.getItem('auth-storage');
-      const authToken = localStorage.getItem('auth_token');
-      console.log('🔍 Token search debug:', {
-        access_token: localStorage.getItem('access_token') ? 'Exists' : 'Missing',
-        auth_token: authToken ? 'Exists' : 'Missing',
-        auth_storage: authStorage ? 'Exists' : 'Missing'
-      });
     }
     
     return config;
@@ -154,6 +146,73 @@ const chatApi = {
     }
   },
 
+  // Enhanced file upload with progress tracking
+  uploadFile: async (roomId, file, onProgress = null) => {
+    try {
+      console.log('🔄 Uploading file to room:', roomId, file.name);
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('room_id', roomId);
+      
+      const response = await apiClient.post('/chat/upload/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          if (onProgress && progressEvent.total) {
+            const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            onProgress(percentCompleted);
+          }
+        },
+      });
+      
+      console.log('✅ File uploaded successfully');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Error uploading file:', {
+        status: error.response?.status,
+        roomId: roomId,
+        fileName: file.name,
+        message: error.message
+      });
+      
+      if (error.response?.status === 413) {
+        throw new Error('File too large. Maximum size is 10MB.');
+      }
+      
+      if (error.response?.status === 415) {
+        throw new Error('File type not supported.');
+      }
+      
+      throw new Error(error.response?.data?.error || 'Failed to upload file');
+    }
+  },
+
+  // Get file info and download URL
+  getFileInfo: async (fileUrl) => {
+    try {
+      // For now, return basic file info from URL
+      const fileName = fileUrl.split('/').pop() || 'file';
+      const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
+      
+      return {
+        name: fileName,
+        url: fileUrl,
+        extension: fileExtension,
+        type: getFileType(fileExtension)
+      };
+    } catch (error) {
+      console.error('❌ Error getting file info:', error);
+      return {
+        name: 'file',
+        url: fileUrl,
+        extension: '',
+        type: 'unknown'
+      };
+    }
+  },
+
   createRoom: async (roomData) => {
     try {
       console.log('🔄 Creating new room:', roomData);
@@ -182,24 +241,6 @@ const chatApi = {
       // Don't throw error for presence endpoint - it might not exist
       console.log('💡 Presence endpoint not available');
       return { success: true };
-    }
-  },
-
-  uploadFile: async (roomId, file) => {
-    try {
-      console.log('🔄 Uploading file to room:', roomId, file.name);
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await apiClient.post(`/chat/rooms/${roomId}/files/`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-      console.log('✅ File uploaded successfully');
-      return response.data;
-    } catch (error) {
-      console.error('❌ Error uploading file:', error);
-      throw error;
     }
   },
 
@@ -245,5 +286,20 @@ const chatApi = {
     }
   }
 };
+
+// Helper function to determine file type
+function getFileType(extension) {
+  const imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+  const documentTypes = ['pdf', 'doc', 'docx', 'txt', 'rtf'];
+  const spreadsheetTypes = ['xls', 'xlsx', 'csv'];
+  const archiveTypes = ['zip', 'rar', '7z', 'tar', 'gz'];
+  
+  if (imageTypes.includes(extension)) return 'image';
+  if (documentTypes.includes(extension)) return 'document';
+  if (spreadsheetTypes.includes(extension)) return 'spreadsheet';
+  if (archiveTypes.includes(extension)) return 'archive';
+  
+  return 'unknown';
+}
 
 export { chatApi };
