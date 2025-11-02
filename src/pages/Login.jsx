@@ -21,6 +21,10 @@ const Login = () => {
   const onSubmit = async (data) => {
     const result = await login(data);
     if (result.success) {
+      // ✅ STORE EMAIL IN LOCALSTORAGE FOR VERIFICATION BACKUP
+      if (data.email) {
+        localStorage.setItem('user_email', data.email);
+      }
       navigate('/dashboard');
     }
   };
