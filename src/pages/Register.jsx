@@ -11,9 +11,17 @@ const Register = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [successMessage, setSuccessMessage] = useState('');
+  const [organizationChoice, setOrganizationChoice] = useState('none'); // 'none', 'create', 'join'
 
   const inviteToken = searchParams.get('invite_token');
   const password = watch('password');
+
+  // If there's an invite token, automatically set to join mode
+  React.useEffect(() => {
+    if (inviteToken) {
+      setOrganizationChoice('join');
+    }
+  }, [inviteToken]);
 
   const onSubmit = async (data) => {
     // Format data for your Django API
@@ -25,16 +33,15 @@ const Register = () => {
       last_name: data.lastName,
     };
 
-    // Add invite token if present (this automatically joins organization)
-    if (inviteToken) {
-      userData.invite_token = inviteToken;
-    } 
-    // Add organization only if creating new one (no invite token)
-    else if (data.organizationName) {
+    // Handle organization based on user choice
+    if (organizationChoice === 'create' && data.organizationName) {
       userData.organization = { 
         name: data.organizationName
       };
+    } else if (organizationChoice === 'join' && data.inviteCode) {
+      userData.invite_token = data.inviteCode;
     }
+    // If 'none' or no organization choice, user registers without organization
 
     const result = await registerUser(userData);
     if (result.success) {
@@ -43,21 +50,22 @@ const Register = () => {
         localStorage.setItem('user_email', data.email);
       }
 
-      if (inviteToken) {
-        // If user registered with invitation, they're already in organization
-        setSuccessMessage('Registration successful! You have been added to the organization. Please verify your email to access the dashboard.');
+      let message = '';
+      if (organizationChoice === 'create') {
+        message = 'Registration successful! Your organization has been created. Please verify your email to access the dashboard.';
+      } else if (organizationChoice === 'join') {
+        message = 'Registration successful! You have been added to the organization. Please verify your email to access the dashboard.';
       } else {
-        // If user created new organization
-        setSuccessMessage('Registration successful! Please check your email for verification instructions.');
+        message = 'Registration successful! You can join or create an organization later. Please verify your email to continue.';
       }
+
+      setSuccessMessage(message);
       
       // Redirect to verification page after 3 seconds
       setTimeout(() => {
         navigate('/verify-email', { 
           state: { 
-            message: inviteToken 
-              ? 'You have been added to the organization! Please verify your email to access the dashboard.' 
-              : 'Registration successful! Please check your email for the verification token.',
+            message,
             email: data.email
           }
         });
@@ -265,33 +273,151 @@ const Register = () => {
                 </div>
               </div>
 
-              {/* Organization Name - Only show if no invite token */}
+              {/* Organization Choice - Only show if no invite token */}
               {!inviteToken && (
-                <div>
-                  <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
-                    Organization Name *
-                  </label>
-                  <div className="mt-1">
-                    <input
-                      id="organizationName"
-                      type="text"
-                      {...register('organizationName', { 
-                        required: 'Organization name is required',
-                        minLength: {
-                          value: 2,
-                          message: 'Organization name must be at least 2 characters'
-                        }
-                      })}
-                      className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
-                      placeholder="Acme Inc."
-                    />
-                    {errors.organizationName && (
-                      <p className="mt-1 text-sm text-red-600">{errors.organizationName.message}</p>
-                    )}
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                      Organization (Optional)
+                    </label>
+                    
+                    {/* Choice Cards */}
+                    <div className="grid grid-cols-1 gap-3">
+                      {/* No Organization */}
+                      <div 
+                        className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                          organizationChoice === 'none' 
+                            ? 'border-primary-900 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                        onClick={() => setOrganizationChoice('none')}
+                      >
+                        <div className="flex items-center">
+                          <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                            organizationChoice === 'none' 
+                              ? 'border-primary-900 bg-primary-900' 
+                              : 'border-gray-300'
+                          }`} />
+                          <div>
+                            <h3 className="font-medium text-gray-900">No Organization</h3>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Register without an organization. You can join or create one later.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Create New Organization */}
+                      <div 
+                        className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                          organizationChoice === 'create' 
+                            ? 'border-primary-900 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                        onClick={() => setOrganizationChoice('create')}
+                      >
+                        <div className="flex items-center">
+                          <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                            organizationChoice === 'create' 
+                              ? 'border-primary-900 bg-primary-900' 
+                              : 'border-gray-300'
+                          }`} />
+                          <div>
+                            <h3 className="font-medium text-gray-900">Create New Organization</h3>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Start a new organization and become the administrator.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Join Existing Organization */}
+                      <div 
+                        className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                          organizationChoice === 'join' 
+                            ? 'border-primary-900 bg-primary-50' 
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                        onClick={() => setOrganizationChoice('join')}
+                      >
+                        <div className="flex items-center">
+                          <div className={`w-4 h-4 rounded-full border-2 mr-3 ${
+                            organizationChoice === 'join' 
+                              ? 'border-primary-900 bg-primary-900' 
+                              : 'border-gray-300'
+                          }`} />
+                          <div>
+                            <h3 className="font-medium text-gray-900">Join Existing Organization</h3>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Use an invitation code to join an existing organization.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <p className="mt-2 text-xs text-gray-500">
-                    This will be your workspace name. You can change it later.
-                  </p>
+
+                  {/* Create Organization Form */}
+                  {organizationChoice === 'create' && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <h4 className="font-medium text-blue-900 mb-2">Create New Organization</h4>
+                      <div>
+                        <label htmlFor="organizationName" className="block text-sm font-medium text-gray-700">
+                          Organization Name *
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="organizationName"
+                            type="text"
+                            {...register('organizationName', { 
+                              required: organizationChoice === 'create' ? 'Organization name is required' : false,
+                              minLength: {
+                                value: 2,
+                                message: 'Organization name must be at least 2 characters'
+                              }
+                            })}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
+                            placeholder="Acme Inc."
+                          />
+                          {errors.organizationName && (
+                            <p className="mt-1 text-sm text-red-600">{errors.organizationName.message}</p>
+                          )}
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          This will be your workspace name. You can change it later.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Join Organization Form */}
+                  {organizationChoice === 'join' && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <h4 className="font-medium text-green-900 mb-2">Join Existing Organization</h4>
+                      <div>
+                        <label htmlFor="inviteCode" className="block text-sm font-medium text-gray-700">
+                          Invitation Code *
+                        </label>
+                        <div className="mt-1">
+                          <input
+                            id="inviteCode"
+                            type="text"
+                            {...register('inviteCode', { 
+                              required: organizationChoice === 'join' ? 'Invitation code is required' : false,
+                            })}
+                            className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
+                            placeholder="Enter invitation code"
+                          />
+                          {errors.inviteCode && (
+                            <p className="mt-1 text-sm text-red-600">{errors.inviteCode.message}</p>
+                          )}
+                        </div>
+                        <p className="mt-2 text-xs text-gray-500">
+                          Get an invitation code from your organization administrator.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

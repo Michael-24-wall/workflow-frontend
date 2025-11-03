@@ -188,59 +188,6 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Chat Preview Section */}
-          <div className="bg-white p-6 rounded-lg shadow-sm mt-6 border border-blue-100">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Chats</h3>
-              <Link 
-                to="/chat" 
-                className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-              >
-                View All Chats →
-              </Link>
-            </div>
-            <div className="space-y-3">
-              <div className="flex items-center space-x-3 p-3 hover:bg-blue-50 rounded-lg cursor-pointer">
-                <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-semibold shrink-0">
-                  G
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-medium text-gray-900">General Chat</h4>
-                    <span className="text-xs text-gray-500">2 min ago</span>
-                  </div>
-                  <p className="text-sm text-gray-600 truncate">John: Hey team, welcome to the general chat!</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-3 p-3 hover:bg-blue-50 rounded-lg cursor-pointer">
-                <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white font-semibold shrink-0">
-                  R
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-medium text-gray-900">Random Talk</h4>
-                    <span className="text-xs text-gray-500">1 hour ago</span>
-                  </div>
-                  <p className="text-sm text-gray-600 truncate">Jane: Anyone up for a coffee break?</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center space-x-3 p-3 hover:bg-blue-50 rounded-lg cursor-pointer">
-                <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-white font-semibold shrink-0">
-                  P
-                </div>
-                <div className="flex-1">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-medium text-gray-900">Project Discussion</h4>
-                    <span className="text-xs text-gray-500">3 hours ago</span>
-                  </div>
-                  <p className="text-sm text-gray-600 truncate">Mike: The new design files are ready for review</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Recent Activity */}
           <div className="bg-white p-6 rounded-lg shadow-sm mt-6 border border-blue-100">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
