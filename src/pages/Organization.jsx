@@ -13,6 +13,7 @@ const Organization = () => {
   const [error, setError] = useState(null);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('contributor');
+  const [deletingId, setDeletingId] = useState(null);
 
   // Direct API calls - no Zustand
   const fetchOrganizationData = async () => {
@@ -27,7 +28,7 @@ const Organization = () => {
 
       console.log('🔄 Loading organization data...');
 
-      // CORRECTED: Use plural 'organizations' instead of 'organization'
+      // FIXED: Use correct plural endpoints
       const [orgResponse, invitesResponse, membersResponse, statsResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/organizations/my_organization/`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -43,16 +44,25 @@ const Organization = () => {
         })
       ]);
 
+      console.log('📡 API Responses:', {
+        org: orgResponse.status,
+        invites: invitesResponse.status,
+        members: membersResponse.status,
+        stats: statsResponse.status
+      });
+
       // Process responses with error handling
       if (!orgResponse.ok) {
         if (orgResponse.status === 404) {
           setOrganization(null);
+          console.log('No organization found');
         } else {
           throw new Error(`Failed to fetch organization: ${orgResponse.statusText}`);
         }
       } else {
         const orgData = await orgResponse.json();
         setOrganization(orgData);
+        console.log('Organization data:', orgData);
       }
 
       if (!invitesResponse.ok) {
@@ -61,6 +71,7 @@ const Organization = () => {
       } else {
         const invitesData = await invitesResponse.json();
         setInvitations(invitesData);
+        console.log('Invitations data:', invitesData);
       }
 
       if (!membersResponse.ok) {
@@ -69,6 +80,7 @@ const Organization = () => {
       } else {
         const membersData = await membersResponse.json();
         setMembers(membersData);
+        console.log('Members data:', membersData);
       }
 
       if (!statsResponse.ok) {
@@ -77,6 +89,7 @@ const Organization = () => {
       } else {
         const statsData = await statsResponse.json();
         setStats(statsData);
+        console.log('Stats data:', statsData);
       }
 
     } catch (error) {
@@ -99,7 +112,7 @@ const Organization = () => {
     try {
       const token = localStorage.getItem('access_token');
       
-      // CORRECTED: Use plural 'organizations'
+      // FIXED: Use correct plural endpoint
       const response = await fetch(`${API_BASE_URL}/organizations/send_invitation/`, {
         method: 'POST',
         headers: {
@@ -111,6 +124,7 @@ const Organization = () => {
       
       if (response.ok) {
         const result = await response.json();
+        console.log('Invitation sent:', result);
         setEmail('');
         setRole('contributor');
         await fetchOrganizationData(); // Refresh data
@@ -120,6 +134,51 @@ const Organization = () => {
       }
     } catch (error) {
       setError('Failed to send invitation: ' + error.message);
+    }
+  };
+
+  // DELETE INVITATION FUNCTION
+  const handleDeleteInvitation = async (invitationId) => {
+    if (!window.confirm('Are you sure you want to delete this invitation? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeletingId(invitationId);
+    try {
+      const token = localStorage.getItem('access_token');
+      
+      // FIXED: Use correct plural endpoint
+      const response = await fetch(`${API_BASE_URL}/organizations/delete_invitation/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ invitation_id: invitationId }),
+      });
+
+      if (response.ok) {
+        // Remove the invitation from local state immediately
+        setInvitations(prev => prev.filter(invite => invite.id !== invitationId));
+        
+        // Refresh stats to update pending invitations count
+        const statsResponse = await fetch(`${API_BASE_URL}/organizations/statistics/`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (statsResponse.ok) {
+          const statsData = await statsResponse.json();
+          setStats(statsData);
+        }
+        
+        console.log('Invitation deleted successfully');
+      } else {
+        const errorData = await response.json();
+        setError(errorData.error || errorData.detail || 'Failed to delete invitation');
+      }
+    } catch (error) {
+      setError('Failed to delete invitation: ' + error.message);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -147,6 +206,9 @@ const Organization = () => {
   const canSendInvitations = userRole && 
     ['owner', 'manager', 'hr', 'ceo', 'administrator'].includes(userRole);
 
+  const canDeleteInvitations = userRole && 
+    ['owner', 'manager', 'hr', 'ceo', 'administrator'].includes(userRole);
+
   // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
@@ -156,6 +218,16 @@ const Organization = () => {
       month: 'short',
       day: 'numeric'
     });
+  };
+
+  // Check if invitation is expiring soon
+  const isExpiringSoon = (expiresAt) => {
+    if (!expiresAt) return false;
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffTime = expiry - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays <= 2;
   };
 
   if (isLoading) {
@@ -192,9 +264,9 @@ const Organization = () => {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={fetchOrganizationData}
+              onClick={() => setError(null)}
             >
-              Retry
+              Dismiss
             </Button>
           </div>
         </div>
@@ -366,18 +438,41 @@ const Organization = () => {
                       ({invite.invited_by?.email})
                     </p>
                   </div>
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    invite.is_accepted 
-                      ? 'bg-green-100 text-green-800' 
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {invite.is_accepted ? 'Accepted' : 'Pending'}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      invite.is_accepted 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-yellow-100 text-yellow-800'
+                    }`}>
+                      {invite.is_accepted ? 'Accepted' : 'Pending'}
+                    </span>
+                    {canDeleteInvitations && !invite.is_accepted && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteInvitation(invite.id)}
+                        disabled={deletingId === invite.id}
+                        className="text-red-600 border-red-200 hover:bg-red-50"
+                      >
+                        {deletingId === invite.id ? (
+                          <div className="flex items-center space-x-1">
+                            <div className="w-3 h-3 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                            <span>Deleting...</span>
+                          </div>
+                        ) : (
+                          'Delete'
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 
                 <div className="flex justify-between items-center text-sm text-gray-500">
                   <span>Sent: {formatDate(invite.created_at)}</span>
-                  <span>Expires: {formatDate(invite.expires_at)}</span>
+                  <span className={`${isExpiringSoon(invite.expires_at) ? 'text-orange-600 font-medium' : ''}`}>
+                    Expires: {formatDate(invite.expires_at)}
+                    {isExpiringSoon(invite.expires_at) && ' ⚠️'}
+                  </span>
                 </div>
                 
                 {invite.message && (
