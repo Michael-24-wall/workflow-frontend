@@ -7,6 +7,11 @@ const LoadingSpinner = () => (
       <p className="text-lg">Loading chat...</p>
     </div>
   </div>
+
+  
 );
+
+
+
 
 export default LoadingSpinner;
