@@ -19,6 +19,9 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Check if user has access to this dashboard
+  const hasAccess = user?.organization_role && ['owner', 'executive'].includes(user.organization_role);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -74,8 +77,12 @@ const Dashboard = () => {
   };
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    if (hasAccess) {
+      fetchDashboardData();
+    } else {
+      setLoading(false);
+    }
+  }, [hasAccess]);
 
   // Format date for display
   const formatDate = (dateString) => {
@@ -96,12 +103,171 @@ const Dashboard = () => {
     return diffDays <= 2;
   };
 
+  // Dashboard cards data - Only show dashboards based on role
+  const dashboardCards = [
+    {
+      title: 'Team Dashboard',
+      description: 'Manage team members and collaboration',
+      icon: '👥',
+      path: '/dashboard/team',
+      color: 'from-blue-500 to-blue-600',
+      available: hasAccess
+    },
+    {
+      title: 'Analytics',
+      description: 'View performance metrics and insights',
+      icon: '📊',
+      path: '/dashboard/analytics',
+      color: 'from-green-500 to-green-600',
+      available: hasAccess
+    },
+    {
+      title: 'Financial',
+      description: 'Financial reports and revenue tracking',
+      icon: '💰',
+      path: '/dashboard/financial',
+      color: 'from-emerald-500 to-emerald-600',
+      available: hasAccess
+    },
+    {
+      title: 'HR Dashboard',
+      description: 'Human resources and employee management',
+      icon: '👨‍💼',
+      path: '/dashboard/hr',
+      color: 'from-purple-500 to-purple-600',
+      available: hasAccess
+    },
+    {
+      title: 'Cases',
+      description: 'Case management and tracking',
+      icon: '📋',
+      path: '/dashboard/cases',
+      color: 'from-orange-500 to-orange-600',
+      available: hasAccess
+    },
+    {
+      title: 'System',
+      description: 'System metrics and health monitoring',
+      icon: '⚙️',
+      path: '/dashboard/system',
+      color: 'from-gray-500 to-gray-600',
+      available: hasAccess
+    },
+    {
+      title: 'User Management',
+      description: 'User accounts and permissions',
+      icon: '👤',
+      path: '/dashboard/users',
+      color: 'from-indigo-500 to-indigo-600',
+      available: hasAccess
+    },
+    {
+      title: 'Reports',
+      description: 'Generate and view reports',
+      icon: '📈',
+      path: '/dashboard/reports',
+      color: 'from-pink-500 to-pink-600',
+      available: hasAccess
+    },
+    {
+      title: 'Personal',
+      description: 'Your personal dashboard and settings',
+      icon: '🎯',
+      path: '/dashboard/personal',
+      color: 'from-cyan-500 to-cyan-600',
+      available: true // Personal dashboard available to all
+    }
+  ];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-800 mx-auto"></div>
           <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Access Denied View
+  if (!hasAccess) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        {/* Animated Navbar */}
+        <div className="bg-blue-800 text-white shadow-lg">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex justify-between items-center h-16">
+              <div className="flex items-center">
+                <h1 className="text-xl font-bold transition-all duration-300 hover:scale-105">
+                  Paperless System
+                </h1>
+              </div>
+              <div className="flex items-center space-x-6">
+                <nav className="flex space-x-4">
+                  <Link 
+                    to="/dashboard/personal" 
+                    className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
+                  >
+                    Personal Dashboard
+                  </Link>
+                  <Link 
+                    to="/profile" 
+                    className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
+                  >
+                    Profile
+                  </Link>
+                </nav>
+                <div className="flex items-center space-x-4 border-l border-blue-600 pl-4">
+                  <span className="text-sm transition-all duration-300 hover:text-blue-200">
+                    Welcome, {user?.first_name} {user?.last_name}
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-500 hover:scale-105 active:scale-95"
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Access Denied Content */}
+        <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+          <div className="px-4 py-6 sm:px-0">
+            <div className="bg-white rounded-lg shadow-sm p-8 text-center border border-blue-100">
+              <div className="w-24 h-24 mx-auto mb-6 bg-yellow-100 rounded-full flex items-center justify-center">
+                <span className="text-4xl">🚫</span>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                Access Restricted
+              </h1>
+              <p className="text-gray-600 mb-6 max-w-md mx-auto">
+                This dashboard is only available to organization owners and executives. 
+                Please contact your administrator if you believe this is a mistake.
+              </p>
+              <div className="flex justify-center space-x-4">
+                <Link
+                  to="/dashboard/personal"
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Go to Personal Dashboard
+                </Link>
+                <Link
+                  to="/profile"
+                  className="bg-gray-200 text-gray-800 px-6 py-3 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+                >
+                  View Profile
+                </Link>
+              </div>
+              <div className="mt-8 p-4 bg-blue-50 rounded-lg">
+                <h3 className="font-semibold text-blue-800 mb-2">Your Current Role</h3>
+                <p className="text-blue-700 capitalize">{user?.organization_role || 'No role assigned'}</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -149,6 +315,9 @@ const Dashboard = () => {
                 <span className="text-sm transition-all duration-300 hover:text-blue-200">
                   Welcome, {user?.first_name} {user?.last_name}
                 </span>
+                <div className="bg-blue-700 px-3 py-1 rounded-full text-xs font-medium">
+                  {user?.organization_role?.toUpperCase()}
+                </div>
                 <button
                   onClick={handleLogout}
                   className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-500 hover:scale-105 active:scale-95"
@@ -195,6 +364,11 @@ const Dashboard = () => {
                 : 'Get started by creating or joining an organization.'
               }
             </p>
+            <div className="mt-2 flex items-center">
+              <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                {user?.organization_role?.toUpperCase()} ACCESS
+              </span>
+            </div>
           </div>
 
           {/* Stats Grid */}
@@ -224,6 +398,32 @@ const Dashboard = () => {
             </div>
           </div>
 
+          {/* Available Dashboards Grid */}
+          <div className="bg-white p-6 rounded-lg shadow-sm mb-6 border border-blue-100">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Executive Dashboards</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {dashboardCards.map((dashboard, index) => (
+                dashboard.available && (
+                  <Link
+                    key={index}
+                    to={dashboard.path}
+                    className={`block p-4 rounded-lg bg-gradient-to-r ${dashboard.color} text-white transform transition-all duration-300 hover:scale-105 hover:shadow-lg`}
+                  >
+                    <div className="flex items-center mb-2">
+                      <span className="text-2xl mr-3">{dashboard.icon}</span>
+                      <h4 className="text-lg font-semibold">{dashboard.title}</h4>
+                    </div>
+                    <p className="text-blue-100 text-sm">{dashboard.description}</p>
+                    <div className="mt-3 flex justify-end">
+                      <span className="text-blue-200 text-sm">View →</span>
+                    </div>
+                  </Link>
+                )
+              ))}
+            </div>
+          </div>
+
+          {/* Rest of your existing dashboard content remains the same */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Team Members Preview */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-blue-100">
