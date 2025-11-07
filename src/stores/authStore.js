@@ -44,7 +44,15 @@ export const useAutoSave = ({ data, onSave, debounceMs = 1000 }) => {
   return { hasUnsavedChanges, lastSaved };
 };
 
-const API_BASE_URL = 'http://localhost:9000/api';
+// Use environment variables with fallbacks
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+const WS_URL = import.meta.env.VITE_WS_URL || 'http://localhost:9000';
+const MAX_FILE_SIZE = import.meta.env.VITE_MAX_FILE_SIZE || 10485760;
+
+// Helper function to build API URLs
+const buildApiUrl = (endpoint) => {
+  return `${API_BASE_URL}/api${endpoint}`;
+};
 
 const useAuthStore = create(
   persist(
@@ -200,7 +208,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // EDITOR METHODS - UPDATED FOR NEW API ENDPOINTS
+      // EDITOR METHODS - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       // Get all documents with filters
@@ -215,7 +223,7 @@ const useAuthStore = create(
             ...params,
           }).toString();
 
-          const response = await fetch(`${API_BASE_URL}/editor/documents/?${queryParams}`, {
+          const response = await fetch(`${buildApiUrl('/editor/documents/')}?${queryParams}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
@@ -241,7 +249,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/`), {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
@@ -272,7 +280,7 @@ const useAuthStore = create(
             ...(templateId && { template_id: templateId }),
           };
 
-          const response = await fetch(`${API_BASE_URL}/editor/documents/`, {
+          const response = await fetch(buildApiUrl('/editor/documents/'), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -304,7 +312,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/`), {
             method: 'PATCH',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -338,7 +346,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/data/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/data/`), {
             method: 'PUT',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -374,7 +382,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/`), {
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -399,7 +407,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/duplicate/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/duplicate/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -426,7 +434,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/archive/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/archive/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -457,7 +465,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/templates/`, {
+          const response = await fetch(buildApiUrl('/editor/documents/templates/'), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -479,7 +487,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/templates/${templateId}/create-document/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/templates/${templateId}/create-document/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -507,7 +515,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/versions/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/versions/`), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -529,7 +537,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/restore_version/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/restore_version/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -560,7 +568,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/share/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/share/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -588,7 +596,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/collaborators/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/collaborators/`), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -610,7 +618,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/comments/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/comments/`), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -632,7 +640,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/documents/${documentId}/comments/`, {
+          const response = await fetch(buildApiUrl(`/editor/documents/${documentId}/comments/`), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -661,7 +669,7 @@ const useAuthStore = create(
         try {
           const token = localStorage.getItem('access_token');
           const response = await fetch(
-            `${API_BASE_URL}/editor/documents/${documentId}/export/?format=${format}`,
+            `${buildApiUrl(`/editor/documents/${documentId}/export/`)}?format=${format}`,
             {
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -697,7 +705,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/bulk/operations/`, {
+          const response = await fetch(buildApiUrl('/editor/bulk/operations/'), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -735,7 +743,7 @@ const useAuthStore = create(
             ...filters,
           }).toString();
 
-          const response = await fetch(`${API_BASE_URL}/editor/search/?${queryParams}`, {
+          const response = await fetch(`${buildApiUrl('/editor/search/')}?${queryParams}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -757,7 +765,7 @@ const useAuthStore = create(
         set({ editorLoading: true, editorError: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/editor/tags/`, {
+          const response = await fetch(buildApiUrl('/editor/tags/'), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -823,7 +831,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // HR DASHBOARD METHODS
+      // HR DASHBOARD METHODS - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       getHRDashboard: async (section = null) => {
@@ -844,11 +852,11 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          let url = `${API_BASE_URL}/organizations/${organizationSlug}/dashboard/hr/`;
+          let url = buildApiUrl(`/organizations/${organizationSlug}/dashboard/hr/`);
           
           // If specific section is requested, use the section endpoint
           if (section) {
-            url = `${API_BASE_URL}/organizations/${organizationSlug}/dashboard/hr/${section}/`;
+            url = buildApiUrl(`/organizations/${organizationSlug}/dashboard/hr/${section}/`);
           }
 
           const response = await fetch(url, {
@@ -941,7 +949,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/${organizationSlug}/dashboard/hr/employee-actions/`, {
+          const response = await fetch(buildApiUrl(`/organizations/${organizationSlug}/dashboard/hr/employee-actions/`), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1037,7 +1045,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/${organizationSlug}/dashboard/hr/reports/`, {
+          const response = await fetch(buildApiUrl(`/organizations/${organizationSlug}/dashboard/hr/reports/`), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1091,7 +1099,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // DASHBOARD METHODS
+      // DASHBOARD METHODS - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       getAvailableDashboards: async () => {
@@ -1151,7 +1159,7 @@ const useAuthStore = create(
           
           // Only make API calls for dashboards that need real data
           if (dashboardType === 'overview' || dashboardType === 'personal') {
-            const response = await fetch(`${API_BASE_URL}/organizations/my_organization/`, {
+            const response = await fetch(buildApiUrl('/organizations/my_organization/'), {
               headers: { 'Authorization': `Bearer ${token}` },
             });
             if (response.ok) {
@@ -1262,7 +1270,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // AUTHENTICATION METHODS
+      // AUTHENTICATION METHODS - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       checkAuth: async () => {
@@ -1279,7 +1287,7 @@ const useAuthStore = create(
             return;
           }
           
-          const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
+          const response = await fetch(buildApiUrl('/auth/profile/'), {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -1292,7 +1300,7 @@ const useAuthStore = create(
             
             // Convert relative URL to absolute URL
             if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-              userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+              userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
             }
             
             set({ 
@@ -1318,7 +1326,7 @@ const useAuthStore = create(
       register: async (userData) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/register/`, {
+          const response = await fetch(buildApiUrl('/auth/register/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1372,7 +1380,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           console.log('🔐 Attempting login...', credentials);
-          const response = await fetch(`${API_BASE_URL}/auth/login/`, {
+          const response = await fetch(buildApiUrl('/auth/login/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1396,7 +1404,7 @@ const useAuthStore = create(
               localStorage.setItem('user_email', credentials.email);
             }
             
-            const userResponse = await fetch(`${API_BASE_URL}/auth/profile/`, {
+            const userResponse = await fetch(buildApiUrl('/auth/profile/'), {
               method: 'GET',
               headers: {
                 'Content-Type': 'application/json',
@@ -1409,7 +1417,7 @@ const useAuthStore = create(
               
               // Convert relative URL to absolute URL
               if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-                userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+                userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
               }
               
               set({ user: userData, isLoading: false, error: null });
@@ -1499,13 +1507,13 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // EMAIL VERIFICATION METHODS
+      // EMAIL VERIFICATION METHODS - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       verifyEmail: async (token) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/verify_email_with_token/`, {
+          const response = await fetch(buildApiUrl('/auth/verify_email_with_token/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1544,7 +1552,7 @@ const useAuthStore = create(
             throw new Error('Please register again or contact support to resend verification email.');
           }
 
-          const response = await fetch(`${API_BASE_URL}/auth/resend_verification/`, {
+          const response = await fetch(buildApiUrl('/auth/resend_verification/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1568,7 +1576,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // PROFILE MANAGEMENT
+      // PROFILE MANAGEMENT - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       updateProfile: async (profileData) => {
@@ -1586,7 +1594,7 @@ const useAuthStore = create(
             headers['Content-Type'] = 'application/json';
           }
           
-          const response = await fetch(`${API_BASE_URL}/auth/update_profile/`, {
+          const response = await fetch(buildApiUrl('/auth/update_profile/'), {
             method: 'PATCH',
             headers: headers,
             body: isFormData ? profileData : JSON.stringify(profileData),
@@ -1600,7 +1608,7 @@ const useAuthStore = create(
           const userData = await response.json();
           
           if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-            userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+            userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
           }
           
           set({ user: userData, isLoading: false });
@@ -1618,7 +1626,7 @@ const useAuthStore = create(
           const formData = new FormData();
           formData.append('profile_picture', file);
           
-          const response = await fetch(`${API_BASE_URL}/auth/update_profile/`, {
+          const response = await fetch(buildApiUrl('/auth/update_profile/'), {
             method: 'PATCH',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -1634,7 +1642,7 @@ const useAuthStore = create(
           const userData = await response.json();
           
           if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-            userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+            userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
           }
           
           set({ user: userData, isLoading: false });
@@ -1654,7 +1662,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/auth/remove_profile_picture/`, {
+          const response = await fetch(buildApiUrl('/auth/remove_profile_picture/'), {
             method: 'DELETE',
             headers: {
               'Content-Type': 'application/json',
@@ -1670,7 +1678,7 @@ const useAuthStore = create(
           const userData = await response.json();
           
           if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-            userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+            userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
           }
           
           set({ user: userData, isLoading: false });
@@ -1685,7 +1693,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/auth/change_password/`, {
+          const response = await fetch(buildApiUrl('/auth/change_password/'), {
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
@@ -1708,13 +1716,13 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // PASSWORD RESET
+      // PASSWORD RESET - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       forgotPassword: async (email) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/forgot_password/`, {
+          const response = await fetch(buildApiUrl('/auth/forgot_password/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1738,7 +1746,7 @@ const useAuthStore = create(
       resetPassword: async (resetData) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch(`${API_BASE_URL}/auth/password_reset_confirm/`, {
+          const response = await fetch(buildApiUrl('/auth/password_reset_confirm/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1760,14 +1768,14 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // ORGANIZATION MANAGEMENT
+      // ORGANIZATION MANAGEMENT - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       joinOrganization: async (inviteToken) => {
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/auth/join_organization/`, {
+          const response = await fetch(buildApiUrl('/auth/join_organization/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -1784,7 +1792,7 @@ const useAuthStore = create(
           const data = await response.json();
           
           if (data.user?.profile_picture_url && data.user.profile_picture_url.startsWith('/')) {
-            data.user.profile_picture_url = `http://localhost:9000${data.user.profile_picture_url}`;
+            data.user.profile_picture_url = `${API_BASE_URL}${data.user.profile_picture_url}`;
           }
           
           set({ user: data.user, isLoading: false });
@@ -1820,7 +1828,7 @@ const useAuthStore = create(
           }
 
           // SINGLE API CALL - Only get organization data
-          const response = await fetch(`${API_BASE_URL}/organizations/my_organization/`, {
+          const response = await fetch(buildApiUrl('/organizations/my_organization/'), {
             headers: { 
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}` 
@@ -1874,7 +1882,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/members/`, {
+          const response = await fetch(buildApiUrl('/organizations/members/'), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -1907,7 +1915,7 @@ const useAuthStore = create(
         set({ isLoading: true });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/pending_invitations/`, {
+          const response = await fetch(buildApiUrl('/organizations/pending_invitations/'), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -1940,7 +1948,7 @@ const useAuthStore = create(
         set({ isLoading: true });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/statistics/`, {
+          const response = await fetch(buildApiUrl('/organizations/statistics/'), {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -2012,7 +2020,7 @@ const useAuthStore = create(
         set({ isLoading: true, error: null });
         try {
           const token = localStorage.getItem('access_token');
-          const response = await fetch(`${API_BASE_URL}/organizations/send_invitation/`, {
+          const response = await fetch(buildApiUrl('/organizations/send_invitation/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2043,7 +2051,7 @@ const useAuthStore = create(
       },
 
       // =============================================================================
-      // TOKEN MANAGEMENT
+      // TOKEN MANAGEMENT - UPDATED TO USE ENV VARIABLES
       // =============================================================================
 
       refreshToken: async () => {
@@ -2053,7 +2061,7 @@ const useAuthStore = create(
             return { success: false };
           }
           
-          const response = await fetch(`${API_BASE_URL}/auth/token/refresh/`, {
+          const response = await fetch(buildApiUrl('/auth/token/refresh/'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2089,7 +2097,7 @@ const useAuthStore = create(
             return { success: false, error: 'No token found' };
           }
 
-          const response = await fetch(`${API_BASE_URL}/auth/profile/`, {
+          const response = await fetch(buildApiUrl('/auth/profile/'), {
             method: 'GET',
             headers: {
               'Content-Type': 'application/json',
@@ -2101,7 +2109,7 @@ const useAuthStore = create(
             const userData = await response.json();
             
             if (userData.profile_picture_url && userData.profile_picture_url.startsWith('/')) {
-              userData.profile_picture_url = `http://localhost:9000${userData.profile_picture_url}`;
+              userData.profile_picture_url = `${API_BASE_URL}${userData.profile_picture_url}`;
             }
             
             console.log('🔄 Refreshed user profile:', userData);

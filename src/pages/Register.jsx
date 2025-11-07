@@ -41,7 +41,15 @@ const Register = () => {
     } else if (organizationChoice === 'join' && data.inviteCode) {
       userData.invite_token = data.inviteCode;
     }
+    
+    // 🔥 CRITICAL FIX: Always include invite_token from URL if it exists
+    if (inviteToken) {
+      userData.invite_token = inviteToken;
+      console.log('🎯 Using invitation token from URL:', inviteToken);
+    }
     // If 'none' or no organization choice, user registers without organization
+
+    console.log('📤 Final registration payload:', userData);
 
     const result = await registerUser(userData);
     if (result.success) {
@@ -53,7 +61,7 @@ const Register = () => {
       let message = '';
       if (organizationChoice === 'create') {
         message = 'Registration successful! Your organization has been created. Please verify your email to access the dashboard.';
-      } else if (organizationChoice === 'join') {
+      } else if (organizationChoice === 'join' || inviteToken) {
         message = 'Registration successful! You have been added to the organization. Please verify your email to access the dashboard.';
       } else {
         message = 'Registration successful! You can join or create an organization later. Please verify your email to continue.';
@@ -418,6 +426,19 @@ const Register = () => {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Show invitation token info when present */}
+              {inviteToken && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <h4 className="font-medium text-purple-900 mb-2">Organization Invitation</h4>
+                  <p className="text-sm text-purple-700">
+                    You're joining an organization with an invitation link. Complete your registration to accept the invitation.
+                  </p>
+                  <p className="text-xs text-purple-600 mt-2">
+                    Invitation token: <code className="bg-purple-100 px-1 py-0.5 rounded">{inviteToken}</code>
+                  </p>
                 </div>
               )}
 
