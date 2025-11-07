@@ -20,12 +20,14 @@ class OrganizationService {
   }
 
   async getMembers() {
-    const response = await this.client.get('/organization/members/');
+    const response = await this.client.get('/organizations/members/');
     return response.data;
   }
 
+  
+
   async inviteMember(email, role = 'member') {
-    const response = await this.client.post('/organization/invite/', {
+    const response = await this.client.post('/organizations/invite/', {
       email,
       role
     });

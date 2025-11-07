@@ -19,16 +19,20 @@ const Login = () => {
   const message = location.state?.message;
 
   const onSubmit = async (data) => {
-    const result = await login(data);
-    if (result.success) {
-      // ✅ STORE EMAIL IN LOCALSTORAGE FOR VERIFICATION BACKUP
-      if (data.email) {
-        localStorage.setItem('user_email', data.email);
-      }
-      navigate('/dashboard');
+  const result = await login(data);
+  if (result.success) {
+    // ✅ STORE EMAIL IN LOCALSTORAGE FOR VERIFICATION BACKUP
+    if (data.email) {
+      localStorage.setItem('user_email', data.email);
     }
-  };
-
+    
+    // ✅ Use safe redirect - fallback to main dashboard
+    const redirectPath = result.redirectTo || '/dashboard';
+    console.log(`🔄 Auto-redirecting to: ${redirectPath}`);
+    navigate(redirectPath);
+  }
+  // Note: Error handling is already done by the auth store
+};
   const handleForgotPassword = async (e) => {
     e.preventDefault();
     if (!forgotPasswordEmail) return;
@@ -48,6 +52,9 @@ const Login = () => {
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Sign in to your account
         </h2>
+        <p className="mt-2 text-center text-sm text-gray-600">
+          You'll be automatically directed to your role-specific dashboard
+        </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -76,7 +83,7 @@ const Login = () => {
 
               {forgotPasswordMessage && (
                 <div className={`p-3 rounded text-sm ${
-                  forgotPasswordMessage.includes('sent') 
+                  forgotPasswordMessage.includes('sent') || forgotPasswordMessage.includes('success')
                     ? 'bg-green-50 border border-green-200 text-green-700'
                     : 'bg-red-50 border border-red-200 text-red-700'
                 }`}>
@@ -135,7 +142,13 @@ const Login = () => {
                   <input
                     id="email"
                     type="email"
-                    {...register('email', { required: 'Email is required' })}
+                    {...register('email', { 
+                      required: 'Email is required',
+                      pattern: {
+                        value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                        message: 'Invalid email address'
+                      }
+                    })}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm"
                     placeholder="Enter your email"
                   />
@@ -151,7 +164,13 @@ const Login = () => {
                   <input
                     id="password"
                     type={showPassword ? 'text' : 'password'}
-                    {...register('password', { required: 'Password is required' })}
+                    {...register('password', { 
+                      required: 'Password is required',
+                      minLength: {
+                        value: 6,
+                        message: 'Password must be at least 6 characters'
+                      }
+                    })}
                     className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md placeholder-gray-400 focus:outline-none focus:ring-primary-900 focus:border-primary-900 sm:text-sm pr-10"
                     placeholder="Enter your password"
                   />
@@ -186,15 +205,40 @@ const Login = () => {
               </div>
 
               <div>
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? 'Signing in...' : 'Sign in'}
+                <Button 
+                  type="submit" 
+                  className="w-full" 
+                  disabled={isLoading}
+                >
+                  {isLoading ? (
+                    <div className="flex items-center justify-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Signing in...
+                    </div>
+                  ) : (
+                    'Sign in'
+                  )}
                 </Button>
               </div>
 
               <div className="text-center">
-                <Link to="/register" className="text-primary-900 hover:text-primary-800">
+                <Link 
+                  to="/register" 
+                  className="text-primary-900 hover:text-primary-800 font-medium"
+                >
                   Don't have an account? Sign up
                 </Link>
+              </div>
+
+              {/* Role Information */}
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <h4 className="text-sm font-medium text-blue-800 mb-2">Role-Based Access</h4>
+                <p className="text-xs text-blue-700">
+                  After signing in, you'll be automatically directed to the dashboard for your role
+                </p>
               </div>
             </form>
           )}

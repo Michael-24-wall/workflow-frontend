@@ -1,10 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import useAuthStore from '../stores/authStore';
-import { organizationAPI } from '../services/api';
 
 const Dashboard = () => {
-  const { user, logout } = useAuthStore();
+  const { 
+    user, 
+    logout, 
+    organization, 
+    invitations, 
+    members, 
+    statistics,
+    getOrganizationData,
+    getInvitationsData,
+    getMembersData,
+    isLoading: authLoading 
+  } = useAuthStore();
   const navigate = useNavigate();
   
   const [stats, setStats] = useState({
@@ -13,60 +23,46 @@ const Dashboard = () => {
     pendingInvitations: 0,
     activeMembers: 0
   });
-  const [members, setMembers] = useState([]);
-  const [pendingInvitations, setPendingInvitations] = useState([]);
-  const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Check if user has access to this dashboard
-  const hasAccess = user?.organization_role && ['owner', 'executive'].includes(user.organization_role);
+  const effectiveUserRole = useAuthStore(state => state.effectiveUserRole);
+  const hasAccess = effectiveUserRole && ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE'].includes(effectiveUserRole);
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  // Fetch dashboard data
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch organization statistics
-      const statsResponse = await organizationAPI.getStatistics();
-      if (statsResponse.data) {
+      // Fetch all data in parallel
+      const [orgResult, invitationsResult, membersResult] = await Promise.all([
+        getOrganizationData(),
+        getInvitationsData(),
+        getMembersData()
+      ]);
+      
+      if (orgResult?.success) {
+        // Update stats from all data sources
         setStats({
-          totalDocuments: 0,
-          teamMembers: statsResponse.data.total_members || 0,
-          pendingInvitations: statsResponse.data.pending_invitations || 0,
-          activeMembers: statsResponse.data.active_members || 0
+          totalDocuments: statistics?.total_documents || 0,
+          teamMembers: members?.length || 0,
+          pendingInvitations: invitations?.length || 0,
+          activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0
         });
-      }
-
-      // Fetch organization members
-      const membersResponse = await organizationAPI.getMembers();
-      if (membersResponse.data) {
-        setMembers(membersResponse.data);
-      }
-
-      // Fetch pending invitations
-      const invitationsResponse = await organizationAPI.getPendingInvitations();
-      if (invitationsResponse.data) {
-        setPendingInvitations(invitationsResponse.data);
-      }
-
-      // Fetch organization details
-      const orgResponse = await organizationAPI.getMyOrganization();
-      if (orgResponse.data) {
-        setOrganization(orgResponse.data);
+      } else {
+        throw new Error(orgResult?.error || 'Failed to fetch organization data');
       }
 
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
-      if (err.response?.status === 404) {
+      if (err.message?.includes('404') || err.message?.includes('not found')) {
         setError('You are not part of any organization yet.');
-      } else if (err.response?.status === 403) {
+      } else if (err.message?.includes('403') || err.message?.includes('permission')) {
         setError('You do not have permission to view organization data.');
       } else {
         setError('Failed to load dashboard data. Please try again.');
@@ -74,18 +70,47 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getOrganizationData, getInvitationsData, getMembersData, statistics, members, invitations]);
 
+  // Fixed useEffect with proper dependencies and loading state management
   useEffect(() => {
-    if (hasAccess) {
-      fetchDashboardData();
+    let isMounted = true;
+    
+    const loadData = async () => {
+      if (!hasAccess || !isMounted) return;
+      
+      try {
+        await fetchDashboardData();
+      } catch (err) {
+        if (isMounted) {
+          console.error('Dashboard data fetch error:', err);
+        }
+      }
+    };
+
+    // Only load data if we don't have organization data
+    if (hasAccess && !organization && !loading) {
+      loadData();
+    } else if (hasAccess && organization) {
+      // If we already have organization data, just update stats
+      setStats({
+        totalDocuments: statistics?.total_documents || 0,
+        teamMembers: members?.length || 0,
+        pendingInvitations: invitations?.length || 0,
+        activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0
+      });
+      setLoading(false);
     } else {
       setLoading(false);
     }
-  }, [hasAccess]);
 
-  // Format date for display
+    return () => {
+      isMounted = false;
+    };
+  }, [hasAccess, organization, fetchDashboardData, loading, statistics, members, invitations]);
+
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', {
       month: 'short',
@@ -94,8 +119,8 @@ const Dashboard = () => {
     });
   };
 
-  // Check if invitation is expiring soon (less than 2 days)
   const isExpiringSoon = (expiresAt) => {
+    if (!expiresAt) return false;
     const now = new Date();
     const expiry = new Date(expiresAt);
     const diffTime = expiry - now;
@@ -103,83 +128,88 @@ const Dashboard = () => {
     return diffDays <= 2;
   };
 
-  // Dashboard cards data - Only show dashboards based on role
-  const dashboardCards = [
-    {
-      title: 'Team Dashboard',
-      description: 'Manage team members and collaboration',
-      icon: '👥',
-      path: '/dashboard/team',
-      color: 'from-blue-500 to-blue-600',
-      available: hasAccess
-    },
-    {
-      title: 'Analytics',
-      description: 'View performance metrics and insights',
-      icon: '📊',
-      path: '/dashboard/analytics',
-      color: 'from-green-500 to-green-600',
-      available: hasAccess
-    },
-    {
-      title: 'Financial',
-      description: 'Financial reports and revenue tracking',
-      icon: '💰',
-      path: '/dashboard/financial',
-      color: 'from-emerald-500 to-emerald-600',
-      available: hasAccess
-    },
-    {
-      title: 'HR Dashboard',
-      description: 'Human resources and employee management',
-      icon: '👨‍💼',
-      path: '/dashboard/hr',
-      color: 'from-purple-500 to-purple-600',
-      available: hasAccess
-    },
-    {
-      title: 'Cases',
-      description: 'Case management and tracking',
-      icon: '📋',
-      path: '/dashboard/cases',
-      color: 'from-orange-500 to-orange-600',
-      available: hasAccess
-    },
-    {
-      title: 'System',
-      description: 'System metrics and health monitoring',
-      icon: '⚙️',
-      path: '/dashboard/system',
-      color: 'from-gray-500 to-gray-600',
-      available: hasAccess
-    },
-    {
-      title: 'User Management',
-      description: 'User accounts and permissions',
-      icon: '👤',
-      path: '/dashboard/users',
-      color: 'from-indigo-500 to-indigo-600',
-      available: hasAccess
-    },
-    {
-      title: 'Reports',
-      description: 'Generate and view reports',
-      icon: '📈',
-      path: '/dashboard/reports',
-      color: 'from-pink-500 to-pink-600',
-      available: hasAccess
-    },
-    {
-      title: 'Personal',
-      description: 'Your personal dashboard and settings',
-      icon: '🎯',
-      path: '/dashboard/personal',
-      color: 'from-cyan-500 to-cyan-600',
-      available: true // Personal dashboard available to all
-    }
-  ];
+  const getDashboardCards = () => {
+    const allCards = [
+      {
+        title: 'Spreadsheet Editor',
+        description: 'Create and manage spreadsheets with advanced features',
+        icon: '📊',
+        path: '/editor',
+        color: 'from-green-500 to-green-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
+      },
+      {
+        title: 'Overview',
+        description: 'Organization overview and analytics',
+        icon: '🏠',
+        path: '/dashboard/overview',
+        color: 'from-blue-500 to-blue-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
+      },
+      {
+        title: 'Financial',
+        description: 'Financial reports and revenue tracking',
+        icon: '💰',
+        path: '/dashboard/financial',
+        color: 'from-emerald-500 to-emerald-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'FINANCE']
+      },
+      {
+        title: 'HR Dashboard',
+        description: 'Human resources and employee management',
+        icon: '👨‍💼',
+        color: 'from-purple-500 to-purple-600',
+        path: '/dashboard/hr',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'HR', 'MANAGER']
+      },
+      {
+        title: 'Team',
+        description: 'Manage team members and collaboration',
+        icon: '👥',
+        path: '/dashboard/team',
+        color: 'from-indigo-500 to-indigo-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR']
+      },
+      {
+        title: 'Cases',
+        description: 'Case management and tracking',
+        icon: '📋',
+        path: '/dashboard/cases',
+        color: 'from-orange-500 to-orange-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'SOCIAL_WORKER']
+      },
+      {
+        title: 'System',
+        description: 'System metrics and health monitoring',
+        icon: '⚙️',
+        path: '/dashboard/system',
+        color: 'from-gray-500 to-gray-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN']
+      },
+      {
+        title: 'Analytics',
+        description: 'View performance metrics and insights',
+        icon: '📈',
+        path: '/dashboard/analytics',
+        color: 'from-pink-500 to-pink-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER']
+      },
+      {
+        title: 'Personal',
+        description: 'Your personal dashboard and settings',
+        icon: '🎯',
+        path: '/dashboard/personal',
+        color: 'from-cyan-500 to-cyan-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
+      }
+    ];
 
-  if (loading) {
+    return allCards.filter(card => card.roles.includes(effectiveUserRole));
+  };
+
+  const dashboardCards = getDashboardCards();
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -190,11 +220,9 @@ const Dashboard = () => {
     );
   }
 
-  // Access Denied View
   if (!hasAccess) {
     return (
       <div className="min-h-screen bg-gray-50">
-        {/* Animated Navbar */}
         <div className="bg-blue-800 text-white shadow-lg">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
@@ -205,6 +233,13 @@ const Dashboard = () => {
               </div>
               <div className="flex items-center space-x-6">
                 <nav className="flex space-x-4">
+                  {/* ADD EDITOR LINK TO NAVBAR FOR ALL USERS */}
+                  <Link 
+                    to="/editor" 
+                    className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
+                  >
+                    Spreadsheet Editor
+                  </Link>
                   <Link 
                     to="/dashboard/personal" 
                     className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
@@ -234,7 +269,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Access Denied Content */}
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <div className="px-4 py-6 sm:px-0">
             <div className="bg-white rounded-lg shadow-sm p-8 text-center border border-blue-100">
@@ -249,6 +283,13 @@ const Dashboard = () => {
                 Please contact your administrator if you believe this is a mistake.
               </p>
               <div className="flex justify-center space-x-4">
+                {/* ADD EDITOR BUTTON FOR RESTRICTED USERS */}
+                <Link
+                  to="/editor"
+                  className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition-colors"
+                >
+                  Go to Spreadsheet Editor
+                </Link>
                 <Link
                   to="/dashboard/personal"
                   className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
@@ -264,7 +305,7 @@ const Dashboard = () => {
               </div>
               <div className="mt-8 p-4 bg-blue-50 rounded-lg">
                 <h3 className="font-semibold text-blue-800 mb-2">Your Current Role</h3>
-                <p className="text-blue-700 capitalize">{user?.organization_role || 'No role assigned'}</p>
+                <p className="text-blue-700 capitalize">{effectiveUserRole?.toLowerCase() || 'No role assigned'}</p>
               </div>
             </div>
           </div>
@@ -286,6 +327,13 @@ const Dashboard = () => {
             </div>
             <div className="flex items-center space-x-6">
               <nav className="flex space-x-4">
+                {/* ADD EDITOR LINK TO MAIN NAVBAR */}
+                <Link 
+                  to="/editor" 
+                  className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
+                >
+                  Spreadsheet Editor
+                </Link>
                 <Link 
                   to="/dashboard" 
                   className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5"
@@ -316,7 +364,7 @@ const Dashboard = () => {
                   Welcome, {user?.first_name} {user?.last_name}
                 </span>
                 <div className="bg-blue-700 px-3 py-1 rounded-full text-xs font-medium">
-                  {user?.organization_role?.toUpperCase()}
+                  {effectiveUserRole}
                 </div>
                 <button
                   onClick={handleLogout}
@@ -364,24 +412,37 @@ const Dashboard = () => {
                 : 'Get started by creating or joining an organization.'
               }
             </p>
-            <div className="mt-2 flex items-center">
+            <div className="mt-2 flex items-center space-x-3">
               <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                {user?.organization_role?.toUpperCase()} ACCESS
+                {effectiveUserRole} ACCESS
               </span>
+              {/* Quick Access to Editor */}
+              <Link
+                to="/editor"
+                className="bg-green-600 text-white px-4 py-1 rounded-full text-sm font-medium hover:bg-green-700 transition-colors"
+              >
+                🚀 Launch Spreadsheet Editor
+              </Link>
             </div>
           </div>
 
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Documents</h3>
-              <p className="text-3xl font-bold text-blue-800">{stats.totalDocuments}</p>
+            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Spreadsheets</h3>
+              <p className="text-3xl font-bold text-green-800">{stats.totalDocuments}</p>
               <p className="text-sm text-gray-500">Total documents</p>
+              <Link 
+                to="/editor" 
+                className="text-green-600 hover:text-green-800 text-sm font-medium mt-2 inline-block"
+              >
+                Create New →
+              </Link>
             </div>
             
-            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
+            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
               <h3 className="text-lg font-semibold text-gray-900 mb-2">Team Members</h3>
-              <p className="text-3xl font-bold text-green-800">{stats.teamMembers}</p>
+              <p className="text-3xl font-bold text-blue-800">{stats.teamMembers}</p>
               <p className="text-sm text-gray-500">In your organization</p>
             </div>
             
@@ -400,31 +461,36 @@ const Dashboard = () => {
 
           {/* Available Dashboards Grid */}
           <div className="bg-white p-6 rounded-lg shadow-sm mb-6 border border-blue-100">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Executive Dashboards</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Available Dashboards</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {dashboardCards.map((dashboard, index) => (
-                dashboard.available && (
-                  <Link
-                    key={index}
-                    to={dashboard.path}
-                    className={`block p-4 rounded-lg bg-gradient-to-r ${dashboard.color} text-white transform transition-all duration-300 hover:scale-105 hover:shadow-lg`}
-                  >
-                    <div className="flex items-center mb-2">
-                      <span className="text-2xl mr-3">{dashboard.icon}</span>
-                      <h4 className="text-lg font-semibold">{dashboard.title}</h4>
-                    </div>
-                    <p className="text-blue-100 text-sm">{dashboard.description}</p>
-                    <div className="mt-3 flex justify-end">
-                      <span className="text-blue-200 text-sm">View →</span>
-                    </div>
-                  </Link>
-                )
+                <Link
+                  key={index}
+                  to={dashboard.path}
+                  className={`block p-4 rounded-lg bg-gradient-to-r ${dashboard.color} text-white transform transition-all duration-300 hover:scale-105 hover:shadow-lg ${
+                    dashboard.title === 'Spreadsheet Editor' ? 'ring-2 ring-green-300 ring-opacity-50' : ''
+                  }`}
+                >
+                  <div className="flex items-center mb-2">
+                    <span className="text-2xl mr-3">{dashboard.icon}</span>
+                    <h4 className="text-lg font-semibold">{dashboard.title}</h4>
+                  </div>
+                  <p className="text-blue-100 text-sm">{dashboard.description}</p>
+                  <div className="mt-3 flex justify-between items-center">
+                    <span className="text-blue-200 text-sm">View →</span>
+                    {dashboard.title === 'Spreadsheet Editor' && (
+                      <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full font-medium">
+                        NEW
+                      </span>
+                    )}
+                  </div>
+                </Link>
               ))}
             </div>
           </div>
 
-          {/* Rest of your existing dashboard content remains the same */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Two Column Layout for Members and Invitations */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Team Members Preview */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-blue-100">
               <div className="flex justify-between items-center mb-4">
@@ -437,34 +503,34 @@ const Dashboard = () => {
                 </Link>
               </div>
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {members.length > 0 ? (
-                  members.map((member) => (
+                {members && members.length > 0 ? (
+                  members.slice(0, 6).map((member) => (
                     <div key={member.id} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded">
                       <div className="flex items-center">
                         <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center mr-3">
                           <span className="text-blue-800 text-sm font-medium">
-                            {member.first_name?.[0]}{member.last_name?.[0]}
+                            {member.user?.first_name?.[0]}{member.user?.last_name?.[0] || member.email?.[0].toUpperCase()}
                           </span>
                         </div>
                         <div>
                           <p className="font-medium text-gray-900">
-                            {member.first_name} {member.last_name}
+                            {member.user?.first_name} {member.user?.last_name || member.email}
                           </p>
-                          <p className="text-sm text-gray-500">{member.email}</p>
+                          <p className="text-sm text-gray-500">{member.user?.email || member.email}</p>
                         </div>
                       </div>
                       <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                        member.organization_role === 'owner' 
+                        member.role === 'OWNER' 
                           ? 'bg-purple-100 text-purple-800'
-                          : member.organization_role === 'manager'
+                          : member.role === 'MANAGER'
                           ? 'bg-blue-100 text-blue-800'
-                          : member.organization_role === 'hr'
+                          : member.role === 'HR'
                           ? 'bg-pink-100 text-pink-800'
-                          : member.organization_role === 'administrator'
+                          : member.role === 'ADMIN'
                           ? 'bg-indigo-100 text-indigo-800'
                           : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {member.organization_role}
+                        {member.role?.toLowerCase()}
                       </span>
                     </div>
                   ))
@@ -474,7 +540,7 @@ const Dashboard = () => {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
                     <p>No team members found</p>
-                    {user?.organization_role && ['owner', 'manager', 'hr', 'administrator'].includes(user.organization_role) && (
+                    {effectiveUserRole && ['OWNER', 'MANAGER', 'HR', 'ADMIN'].includes(effectiveUserRole) && (
                       <Link 
                         to="/organization" 
                         className="text-blue-600 hover:text-blue-800 text-sm inline-block mt-2"
@@ -484,10 +550,17 @@ const Dashboard = () => {
                     )}
                   </div>
                 )}
+                {members && members.length > 6 && (
+                  <div className="text-center pt-4 border-t border-gray-200">
+                    <p className="text-sm text-gray-600">
+                      +{members.length - 6} more team members
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Pending Invitations */}
+            {/* Pending Invitations - ALWAYS SHOW THIS SECTION */}
             <div className="bg-white p-6 rounded-lg shadow-sm border border-blue-100">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900">Pending Invitations</h3>
@@ -499,36 +572,38 @@ const Dashboard = () => {
                 </Link>
               </div>
               <div className="space-y-3 max-h-80 overflow-y-auto">
-                {pendingInvitations.length > 0 ? (
-                  pendingInvitations.map((invitation) => (
+                {invitations && invitations.length > 0 ? (
+                  invitations.map((invitation) => (
                     <div key={invitation.id} className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50">
                       <div className="flex justify-between items-start mb-2">
                         <div>
                           <p className="font-medium text-gray-900">{invitation.email}</p>
                           <p className="text-sm text-gray-500">
-                            Invited by: {invitation.invited_by?.first_name} {invitation.invited_by?.last_name}
+                            Role: {invitation.role}
                           </p>
                         </div>
                         <span className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                          invitation.role === 'owner' 
+                          invitation.role === 'OWNER' 
                             ? 'bg-purple-100 text-purple-800'
-                            : invitation.role === 'manager'
+                            : invitation.role === 'MANAGER'
                             ? 'bg-blue-100 text-blue-800'
-                            : invitation.role === 'hr'
+                            : invitation.role === 'HR'
                             ? 'bg-pink-100 text-pink-800'
-                            : invitation.role === 'administrator'
+                            : invitation.role === 'ADMIN'
                             ? 'bg-indigo-100 text-indigo-800'
                             : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {invitation.role}
+                          {invitation.role?.toLowerCase()}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-xs text-gray-500">
                         <span>Sent: {formatDate(invitation.created_at)}</span>
-                        <span className={`${isExpiringSoon(invitation.expires_at) ? 'text-orange-600 font-medium' : ''}`}>
-                          Expires: {formatDate(invitation.expires_at)}
-                          {isExpiringSoon(invitation.expires_at) && ' ⚠️'}
-                        </span>
+                        {invitation.expires_at && (
+                          <span className={`${isExpiringSoon(invitation.expires_at) ? 'text-orange-600 font-medium' : ''}`}>
+                            Expires: {formatDate(invitation.expires_at)}
+                            {isExpiringSoon(invitation.expires_at) && ' ⚠️'}
+                          </span>
+                        )}
                       </div>
                       {invitation.message && (
                         <p className="text-sm text-gray-600 mt-2 italic">"{invitation.message}"</p>
@@ -537,16 +612,21 @@ const Dashboard = () => {
                   ))
                 ) : (
                   <div className="text-center py-8 text-gray-500">
-                    <svg className="w-12 h-12 mx-auto text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p>No pending invitations</p>
-                    {user?.organization_role && ['owner', 'manager', 'hr', 'administrator'].includes(user.organization_role) && (
+                    <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-600 mb-4">No pending invitations</p>
+                    {effectiveUserRole && ['OWNER', 'MANAGER', 'HR', 'ADMIN'].includes(effectiveUserRole) && (
                       <Link 
                         to="/organization" 
-                        className="text-blue-600 hover:text-blue-800 text-sm inline-block mt-2"
+                        className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                       >
-                        Send your first invitation
+                        <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                        </svg>
+                        Send Invitation
                       </Link>
                     )}
                   </div>
@@ -559,6 +639,19 @@ const Dashboard = () => {
           <div className="bg-white p-6 rounded-lg shadow-sm mt-6 border border-blue-100">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* ADD SPREADSHEET EDITOR TO QUICK ACTIONS */}
+              <Link
+                to="/editor"
+                className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg text-center hover:bg-green-100 transition-colors group"
+              >
+                <div className="text-green-600 mb-2 group-hover:scale-110 transition-transform">
+                  <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+                <span className="font-medium">Spreadsheet Editor</span>
+              </Link>
+              
               <Link
                 to="/organization"
                 className="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded-lg text-center hover:bg-blue-100 transition-colors"
@@ -594,32 +687,6 @@ const Dashboard = () => {
                 </div>
                 <span className="font-medium">Start Chat</span>
               </Link>
-              
-              {user?.organization_role && ['owner', 'manager', 'hr', 'administrator'].includes(user.organization_role) ? (
-                <Link
-                  to="/organization"
-                  className="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded-lg text-center hover:bg-blue-100 transition-colors"
-                >
-                  <div className="text-blue-600 mb-2">
-                    <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-                    </svg>
-                  </div>
-                  <span className="font-medium">Send Invites</span>
-                </Link>
-              ) : (
-                <Link
-                  to="/organization/join"
-                  className="bg-blue-50 border border-blue-200 text-blue-700 p-4 rounded-lg text-center hover:bg-blue-100 transition-colors"
-                >
-                  <div className="text-blue-600 mb-2">
-                    <svg className="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                  <span className="font-medium">Join Organization</span>
-                </Link>
-              )}
             </div>
           </div>
 
