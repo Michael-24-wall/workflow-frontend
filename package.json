@@ -10,9 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@handsontable/react": "^16.1.1",
     "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
+    "@mui/icons-material": "^7.3.5",
     "@tailwindcss/vite": "^4.1.16",
     "ag-grid-community": "^34.3.1",
     "ag-grid-react": "^34.3.1",
@@ -23,11 +26,13 @@
     "handsontable": "^16.1.1",
     "immer": "^10.2.0",
     "jwt-decode": "^4.0.0",
+    "lucide-react": "^0.553.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-hook-form": "^7.65.0",
     "react-router-dom": "^7.9.4",
     "react-window": "^2.2.2",
+    "recharts": "^3.3.0",
     "socket.io-client": "^4.8.1",
     "tailwindcss": "^4.1.16",
     "zustand": "^5.0.8"

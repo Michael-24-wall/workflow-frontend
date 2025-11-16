@@ -1,170 +1,262 @@
 import React, { useState } from 'react';
+import { X, FileText, LayoutTemplate, File, Plus } from 'lucide-react';
+import useEditorStore from '../../stores/editorStore';
 
-const CreateDocumentModal = ({ templates, onSubmit, onClose, loading }) => {
+const CreateDocumentModal = ({ onClose }) => {
+  const { createDocument, templates, getTemplates } = useEditorStore();
+  const [activeTab, setActiveTab] = useState('blank');
   const [formData, setFormData] = useState({
     title: '',
     description: '',
     document_type: 'spreadsheet',
-    template_id: '',
+    is_template: false
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const documentTypes = [
-    { value: 'spreadsheet', label: '📊 Spreadsheet', description: 'General purpose spreadsheet' },
-    { value: 'budget', label: '💰 Budget', description: 'Financial planning and budgeting' },
-    { value: 'report', label: '📈 Report', description: 'Data analysis and reporting' },
-    { value: 'inventory', label: '📦 Inventory', description: 'Stock and inventory management' },
-    { value: 'schedule', label: '📅 Schedule', description: 'Timeline and scheduling' },
-  ];
+  React.useEffect(() => {
+    getTemplates();
+  }, [getTemplates]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title.trim()) return;
+
+    setIsSubmitting(true);
     
-    const submitData = {
-      ...formData,
-      template_id: formData.template_id || null,
+    // Prepare the data with proper structure
+    const documentData = {
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      document_type: formData.document_type,
+      status: 'active',
+      is_template: false,
+      is_archived: false,
+      is_public: false,
+      tags: [],
+      editor_data: {
+        sheets: [
+          {
+            name: "Sheet1",
+            data: []
+          }
+        ],
+        metadata: {
+          created: new Date().toISOString(),
+          version: "1.0"
+        }
+      }
     };
+
+    console.log('📦 Creating document with data:', documentData);
     
-    onSubmit(submitData);
+    const result = await createDocument(documentData);
+    setIsSubmitting(false);
+
+    if (result.success) {
+      onClose();
+    }
   };
 
-  const handleChange = (field, value) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value
-    }));
+  const handleCreateFromTemplate = async (template) => {
+    setIsSubmitting(true);
+    
+    const documentData = {
+      title: `Copy of ${template.title}`,
+      description: template.description || '',
+      document_type: template.document_type || 'spreadsheet',
+      status: 'active',
+      is_template: false,
+      is_archived: false,
+      is_public: false,
+      tags: template.tags || [],
+      editor_data: template.editor_data || {
+        sheets: [
+          {
+            name: "Sheet1",
+            data: []
+          }
+        ],
+        metadata: {
+          created: new Date().toISOString(),
+          version: "1.0"
+        }
+      }
+    };
+
+    console.log('📦 Creating from template:', documentData);
+    
+    const result = await createDocument(documentData);
+    setIsSubmitting(false);
+
+    if (result.success) {
+      onClose();
+    }
   };
+
+  // Valid document types from your backend
+  const documentTypes = [
+    { value: 'spreadsheet', label: 'Spreadsheet' },
+    { value: 'budget', label: 'Budget' },
+    { value: 'inventory', label: 'Inventory' },
+    { value: 'report', label: 'Report' },
+    { value: 'custom', label: 'Custom' }
+  ];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
-        <div className="bg-blue-900 text-white p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                <span className="text-blue-900 text-lg">📊</span>
-              </div>
-              <div>
-                <h2 className="text-xl font-bold">Create New Document</h2>
-                <p className="text-blue-200 text-sm">Start with a blank sheet or template</p>
-              </div>
-            </div>
+        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+          <h2 className="text-xl font-semibold text-gray-900">Create New Document</h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="border-b border-gray-200">
+          <div className="flex px-6">
             <button
-              onClick={onClose}
-              className="text-white hover:text-blue-200 transition-colors"
+              onClick={() => setActiveTab('blank')}
+              className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+                activeTab === 'blank'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
             >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <FileText className="w-4 h-4 inline mr-2" />
+              Blank Document
+            </button>
+            <button
+              onClick={() => setActiveTab('template')}
+              className={`px-4 py-3 font-medium border-b-2 transition-colors ${
+                activeTab === 'template'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <LayoutTemplate className="w-4 h-4 inline mr-2" />
+              From Template
             </button>
           </div>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Document Title */}
-          <div>
-            <label className="block text-sm font-bold text-blue-900 mb-2">
-              Document Title *
-            </label>
-            <input
-              type="text"
-              required
-              value={formData.title}
-              onChange={(e) => handleChange('title', e.target.value)}
-              placeholder="Enter document title..."
-              className="w-full px-4 py-3 border-2 border-blue-100 rounded-xl focus:border-blue-900 focus:ring-0 transition-colors"
-            />
-          </div>
-
-          {/* Document Description */}
-          <div>
-            <label className="block text-sm font-bold text-blue-900 mb-2">
-              Description
-            </label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => handleChange('description', e.target.value)}
-              rows="3"
-              placeholder="Enter document description..."
-              className="w-full px-4 py-3 border-2 border-blue-100 rounded-xl focus:border-blue-900 focus:ring-0 transition-colors resize-none"
-            />
-          </div>
-
-          {/* Document Type */}
-          <div>
-            <label className="block text-sm font-bold text-blue-900 mb-3">
-              Document Type
-            </label>
-            <div className="space-y-2">
-              {documentTypes.map((type) => (
-                <label
-                  key={type.value}
-                  className={`
-                    flex items-center space-x-3 p-3 border-2 rounded-xl cursor-pointer transition-all
-                    ${formData.document_type === type.value
-                      ? 'border-blue-900 bg-blue-50'
-                      : 'border-blue-100 hover:border-blue-300'
-                    }
-                  `}
-                >
-                  <input
-                    type="radio"
-                    name="document_type"
-                    value={type.value}
-                    checked={formData.document_type === type.value}
-                    onChange={(e) => handleChange('document_type', e.target.value)}
-                    className="text-blue-900 focus:ring-blue-900"
-                  />
-                  <div className="flex-1">
-                    <div className="font-medium text-blue-900">{type.label}</div>
-                    <div className="text-sm text-gray-600">{type.description}</div>
-                  </div>
+        {/* Content */}
+        <div className="p-6 overflow-y-auto max-h-[60vh]">
+          {activeTab === 'blank' && (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Document Title *
                 </label>
-              ))}
-            </div>
-          </div>
+                <input
+                  type="text"
+                  required
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  placeholder="Enter document title"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
 
-          {/* Template Selection */}
-          {templates && templates.length > 0 && (
-            <div>
-              <label className="block text-sm font-bold text-blue-900 mb-2">
-                Start from Template
-              </label>
-              <select
-                value={formData.template_id}
-                onChange={(e) => handleChange('template_id', e.target.value)}
-                className="w-full px-4 py-3 border-2 border-blue-100 rounded-xl focus:border-blue-900 focus:ring-0 transition-colors"
-              >
-                <option value="">Start from scratch</option>
-                {templates.map(template => (
-                  <option key={template.id} value={template.id}>
-                    {template.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Description
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Enter document description (optional)"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Document Type
+                </label>
+                <select
+                  value={formData.document_type}
+                  onChange={(e) => setFormData({ ...formData, document_type: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {documentTypes.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </form>
           )}
 
-          {/* Actions */}
-          <div className="flex space-x-3 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-3 border-2 border-blue-900 text-blue-900 rounded-xl font-bold hover:bg-blue-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!formData.title.trim() || loading}
-              className="flex-1 px-6 py-3 bg-blue-900 text-white rounded-xl font-bold hover:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? 'Creating...' : 'Create Document'}
-            </button>
-          </div>
-        </form>
+          {activeTab === 'template' && (
+            <div className="space-y-4">
+              <p className="text-gray-600">Choose a template to start with</p>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {templates.slice(0, 6).map((template) => (
+                  <button
+                    key={template.uuid || template.id}
+                    onClick={() => handleCreateFromTemplate(template)}
+                    disabled={isSubmitting}
+                    className="text-left p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <File className="w-8 h-8 text-blue-600 mb-2" />
+                    <h3 className="font-semibold text-gray-900 mb-1">
+                      {template.title}
+                    </h3>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {template.description || 'No description'}
+                    </p>
+                    <div className="mt-2">
+                      <span className={`inline-block px-2 py-1 text-xs rounded-full ${
+                        template.document_type === 'spreadsheet' ? 'bg-green-100 text-green-800' :
+                        template.document_type === 'budget' ? 'bg-blue-100 text-blue-800' :
+                        template.document_type === 'inventory' ? 'bg-purple-100 text-purple-800' :
+                        template.document_type === 'report' ? 'bg-orange-100 text-orange-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {template.document_type}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {templates.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <LayoutTemplate className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                  <p>No templates available</p>
+                  <p className="text-sm">Create some templates to get started</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 bg-gray-50">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={activeTab === 'blank' ? handleSubmit : undefined}
+            disabled={isSubmitting || (activeTab === 'blank' && !formData.title.trim())}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isSubmitting ? 'Creating...' : 'Create Document'}
+          </button>
+        </div>
       </div>
     </div>
   );
