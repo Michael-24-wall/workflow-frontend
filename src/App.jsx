@@ -274,198 +274,222 @@ function App() {
 
   return (
     <div className="App">
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/password-reset" element={<PasswordReset />} />
-        <Route path="/join-organization" element={<JoinOrganization />} />
-        <Route path="/verify-email" element={<EmailVerification />} />
+      {/* 🔧 FIX: Move WebSocketProvider to root level */}
+      <WebSocketProvider>
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/password-reset" element={<PasswordReset />} />
+          <Route path="/join-organization" element={<JoinOrganization />} />
+          <Route path="/verify-email" element={<EmailVerification />} />
 
-        {/* Protected Routes */}
-        <Route
-          path="/dashboard"
-          element={user ? <Dashboard /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/dashboard/overview"
-          element={
-            user ? <OverviewDashboard /> : <Navigate to="/login" replace />
-          }
-        />
-
-        {/* 📋 NEW: Case Dashboard Route */}
-        <Route
-          path="/dashboard/cases"
-          element={user ? <CaseDashboard /> : <Navigate to="/login" replace />}
-        />
-
-        {/* 📊 NEW: Sheets Dashboard Routes */}
-        <Route
-          path="/sheets"
-          element={
-            user ? <SheetsDashboard /> : <Navigate to="/login" replace />
-          }
-        />
-        <Route
-          path="/sheets/:spreadsheetId"
-          element={
-            user ? <SpreadsheetEditor /> : <Navigate to="/login" replace />
-          }
-        />
-
-        {/* 💬 NEW: Chat Dashboard Routes */}
-        <Route
-          path="/chat"
-          element={
-            user ? (
-              <AuthProvider>
-                <WebSocketProvider>
-                  <WorkspaceSelector />
-                </WebSocketProvider>
-              </AuthProvider>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-        <Route
-          path="/chat/:workspaceId/*"
-          element={
-            user ? (
-              <AuthProvider>
-                <WebSocketProvider>
-                  <ChatLayout>
-                    <Routes>
-                      <Route path="/" element={<ChatDashboard />} />
-                      <Route
-                        path="/channel/:channelId"
-                        element={<ChannelChat />}
-                      />
-                      <Route path="/dm/:dmId" element={<DirectMessages />} />
-                    </Routes>
-                  </ChatLayout>
-                </WebSocketProvider>
-              </AuthProvider>
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
-        />
-
-        {/* HR Dashboard with Nested Routes */}
-        <Route
-          path="/dashboard/hr"
-          element={user ? <HRDashboard /> : <Navigate to="/login" replace />}
-        >
+          {/* Protected Routes */}
           <Route
-            index
-            element={<Navigate to="/dashboard/hr/overview" replace />}
+            path="/dashboard"
+            element={user ? <Dashboard /> : <Navigate to="/login" replace />}
           />
-          <Route path="overview" element={<HROverview />} />
-          <Route path="employees" element={<Employees />} />
-          <Route path="employees/new" element={<AddEmployee />} />
-          <Route path="employees/:id" element={<EmployeeDetail />} />
-          <Route path="recruitment" element={<Recruitment />} />
-          <Route path="recruitment/new" element={<NewJobPosting />} />
-          <Route path="performance" element={<Performance />} />
-          <Route path="performance/new" element={<ScheduleReview />} />
-          <Route path="leave" element={<LeaveManagement />} />
-          <Route path="training" element={<Training />} />
-          <Route path="compensation" element={<Compensation />} />
-          <Route path="analytics" element={<Analytics />} />
-        </Route>
-
-        {/* 💰 NEW: Financial Dashboard with Nested Routes */}
-        <Route
-          path="/dashboard/financial"
-          element={
-            user ? <FinancialDashboard /> : <Navigate to="/login" replace />
-          }
-        >
           <Route
-            index
-            element={<Navigate to="/dashboard/financial/overview" replace />}
-          />
-          <Route path="overview" element={<FinancialOverview />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="profit-loss" element={<ProfitAndLoss />} />
-          <Route path="budgets" element={<Budgets />} />
-        </Route>
-
-        {/* 👨‍💼 NEW: Manager Dashboard with Nested Routes */}
-        <Route
-          path="/dashboard/manager"
-          element={
-            user ? <ManagerDashboard /> : <Navigate to="/login" replace />
-          }
-        >
-          <Route
-            index
-            element={<Navigate to="/dashboard/manager/overview" replace />}
-          />
-          <Route path="overview" element={<ManagerOverview />} />
-          <Route path="team" element={<TeamManagement />} />
-          <Route path="performance" element={<PerformanceReviews />} />
-          <Route path="approvals" element={<Approvals />} />
-          <Route path="training" element={<TrainingManagement />} />
-          <Route path="analytics" element={<TeamAnalytics />} />
-        </Route>
-
-        {/* 👨‍⚕️ NEW: Social Worker Dashboard with Nested Routes - UPDATED */}
-        <Route
-          path="/dashboard/social-worker"
-          element={
-            user ? <SocialWorkerDashboard /> : <Navigate to="/login" replace />
-          }
-        >
-          <Route
-            index
+            path="/dashboard/overview"
             element={
-              <Navigate to="/dashboard/social-worker/overview" replace />
+              user ? <OverviewDashboard /> : <Navigate to="/login" replace />
             }
           />
-          <Route path="overview" element={<CaseOverview />} />
-          <Route path="cases" element={<CaseOverview />} />
-          <Route path="clients" element={<ClientManagement />} />
-          <Route path="visits" element={<VisitScheduling />} />
-          <Route path="notes" element={<CaseNotes />} />
-          <Route path="resources" element={<ResourceManagement />} />
-          <Route path="analytics" element={<SocialWorkerAnalytics />} />
-          {/* Additional social worker routes can be added here */}
-        </Route>
 
-        {/* 📊 Editor Dashboard Routes */}
-        <Route
-          path="/editor"
-          element={
-            user ? <EditorDashboard /> : <Navigate to="/login" replace />
-          }
-        />
-        <Route
-          path="/editor/document/:documentId"
-          element={user ? <DocumentEditor /> : <Navigate to="/login" replace />}
-        />
+          {/* 📋 NEW: Case Dashboard Route */}
+          <Route
+            path="/dashboard/cases"
+            element={user ? <CaseDashboard /> : <Navigate to="/login" replace />}
+          />
 
-        <Route
-          path="/profile"
-          element={user ? <Profile /> : <Navigate to="/login" replace />}
-        />
-        <Route
-          path="/organization"
-          element={user ? <Organization /> : <Navigate to="/login" replace />}
-        />
+          {/* 📊 NEW: Sheets Dashboard Routes */}
+          <Route
+            path="/sheets"
+            element={
+              user ? <SheetsDashboard /> : <Navigate to="/login" replace />
+            }
+          />
+          <Route
+            path="/sheets/:spreadsheetId"
+            element={
+              user ? <SpreadsheetEditor /> : <Navigate to="/login" replace />
+            }
+          />
 
-        {/* Default Route */}
-        <Route
-          path="/"
-          element={<Navigate to={user ? "/dashboard" : "/login"} replace />}
-        />
+          {/* 💬 FIXED: Chat Dashboard Routes - SIMPLIFIED STRUCTURE */}
+          <Route
+            path="/chat"
+            element={
+              user ? (
+                <AuthProvider>
+                  <WorkspaceSelector />
+                </AuthProvider>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
 
-        {/* Catch all route - redirect to dashboard */}
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
-      </Routes>
+          {/* FIXED: Separate routes without nested Routes component */}
+          <Route
+            path="/chat/:workspaceId"
+            element={
+              user ? (
+                <AuthProvider>
+                  <ChatLayout>
+                    <ChatDashboard />
+                  </ChatLayout>
+                </AuthProvider>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          <Route
+            path="/chat/:workspaceId/channel/:channelId"
+            element={
+              user ? (
+                <AuthProvider>
+                  <ChatLayout>
+                    <ChannelChat />
+                  </ChatLayout>
+                </AuthProvider>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          <Route
+            path="/chat/:workspaceId/dm/:dmId"
+            element={
+              user ? (
+                <AuthProvider>
+                  <ChatLayout>
+                    <DirectMessages />
+                  </ChatLayout>
+                </AuthProvider>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+
+          {/* HR Dashboard with Nested Routes */}
+          <Route
+            path="/dashboard/hr"
+            element={user ? <HRDashboard /> : <Navigate to="/login" replace />}
+          >
+            <Route
+              index
+              element={<Navigate to="/dashboard/hr/overview" replace />}
+            />
+            <Route path="overview" element={<HROverview />} />
+            <Route path="employees" element={<Employees />} />
+            <Route path="employees/new" element={<AddEmployee />} />
+            <Route path="employees/:id" element={<EmployeeDetail />} />
+            <Route path="recruitment" element={<Recruitment />} />
+            <Route path="recruitment/new" element={<NewJobPosting />} />
+            <Route path="performance" element={<Performance />} />
+            <Route path="performance/new" element={<ScheduleReview />} />
+            <Route path="leave" element={<LeaveManagement />} />
+            <Route path="training" element={<Training />} />
+            <Route path="compensation" element={<Compensation />} />
+            <Route path="analytics" element={<Analytics />} />
+          </Route>
+
+          {/* 💰 NEW: Financial Dashboard with Nested Routes */}
+          <Route
+            path="/dashboard/financial"
+            element={
+              user ? <FinancialDashboard /> : <Navigate to="/login" replace />
+            }
+          >
+            <Route
+              index
+              element={<Navigate to="/dashboard/financial/overview" replace />}
+            />
+            <Route path="overview" element={<FinancialOverview />} />
+            <Route path="invoices" element={<Invoices />} />
+            <Route path="profit-loss" element={<ProfitAndLoss />} />
+            <Route path="budgets" element={<Budgets />} />
+          </Route>
+
+          {/* 👨‍💼 NEW: Manager Dashboard with Nested Routes */}
+          <Route
+            path="/dashboard/manager"
+            element={
+              user ? <ManagerDashboard /> : <Navigate to="/login" replace />
+            }
+          >
+            <Route
+              index
+              element={<Navigate to="/dashboard/manager/overview" replace />}
+            />
+            <Route path="overview" element={<ManagerOverview />} />
+            <Route path="team" element={<TeamManagement />} />
+            <Route path="performance" element={<PerformanceReviews />} />
+            <Route path="approvals" element={<Approvals />} />
+            <Route path="training" element={<TrainingManagement />} />
+            <Route path="analytics" element={<TeamAnalytics />} />
+          </Route>
+
+          {/* 👨‍⚕️ NEW: Social Worker Dashboard with Nested Routes - UPDATED */}
+          <Route
+            path="/dashboard/social-worker"
+            element={
+              user ? <SocialWorkerDashboard /> : <Navigate to="/login" replace />
+            }
+          >
+            <Route
+              index
+              element={
+                <Navigate to="/dashboard/social-worker/overview" replace />
+              }
+            />
+            <Route path="overview" element={<CaseOverview />} />
+            <Route path="cases" element={<CaseOverview />} />
+            <Route path="clients" element={<ClientManagement />} />
+            <Route path="visits" element={<VisitScheduling />} />
+            <Route path="notes" element={<CaseNotes />} />
+            <Route path="resources" element={<ResourceManagement />} />
+            <Route path="analytics" element={<SocialWorkerAnalytics />} />
+            {/* Additional social worker routes can be added here */}
+          </Route>
+
+          {/* 📊 Editor Dashboard Routes */}
+          <Route
+            path="/editor"
+            element={
+              user ? <EditorDashboard /> : <Navigate to="/login" replace />
+            }
+          />
+          <Route
+            path="/editor/document/:documentId"
+            element={user ? <DocumentEditor /> : <Navigate to="/login" replace />}
+          />
+
+          <Route
+            path="/profile"
+            element={user ? <Profile /> : <Navigate to="/login" replace />}
+          />
+          <Route
+            path="/organization"
+            element={user ? <Organization /> : <Navigate to="/login" replace />}
+          />
+
+          {/* Default Route */}
+          <Route
+            path="/"
+            element={<Navigate to={user ? "/dashboard" : "/login"} replace />}
+          />
+
+          {/* Catch all route - redirect to dashboard */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </WebSocketProvider>
     </div>
   );
 }

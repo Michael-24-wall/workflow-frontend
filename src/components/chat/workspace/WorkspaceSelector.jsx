@@ -11,34 +11,27 @@ export default function WorkspaceSelector() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if user is authenticated first
-    if (!isAuthenticated()) {
-      console.log('🚫 User not authenticated, redirecting to login');
-      navigate('/login');
-      return;
-    }
     loadWorkspaces();
-  }, [navigate]);
+  }, []);
 
+  // Simplified authentication check
   const isAuthenticated = () => {
     const token = localStorage.getItem('access_token');
-    if (!token) return false;
-
-    // Check if token is expired (basic check)
+    if (!token) {
+      console.log('🚫 No access token found');
+      return false;
+    }
+    
+    // Basic token validation
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      const isExpired = payload.exp * 1000 < Date.now();
-      if (isExpired) {
-        console.log('🔐 Token expired');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
+      const parts = token.split('.');
+      if (parts.length !== 3) {
+        console.log('❌ Invalid token format');
         return false;
       }
       return true;
     } catch (error) {
-      console.error('❌ Invalid token format');
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+      console.log('❌ Token validation error:', error);
       return false;
     }
   };
@@ -49,48 +42,50 @@ export default function WorkspaceSelector() {
       setError('');
       console.log('🔄 Loading workspaces...');
       
-      // Enhanced token check
-      const token = localStorage.getItem('access_token');
-      console.log('🔐 Token available:', !!token);
-      if (token) {
-        console.log('🔐 Token preview:', token.substring(0, 20) + '...');
-        console.log('🔐 Full token:', token);
-        
-        // Verify token format
-        try {
-          const parts = token.split('.');
-          if (parts.length !== 3) {
-            throw new Error('Invalid token format');
-          }
-          const payload = JSON.parse(atob(parts[1]));
-          console.log('🔐 Token payload:', payload);
-        } catch (parseError) {
-          console.error('❌ Token parsing error:', parseError);
-          throw new Error('Invalid authentication token');
-        }
-      } else {
-        throw new Error('No authentication token found');
+      // Check authentication first
+      if (!isAuthenticated()) {
+        setError('Please login to access workspaces');
+        setTimeout(() => navigate('/login'), 2000);
+        return;
       }
-      
+
+      console.log('🔐 Token available, making API request...');
       const data = await workspaceService.getWorkspaces();
       console.log('✅ Workspaces loaded:', data);
-      setWorkspaces(Array.isArray(data) ? data : []);
+      
+      // Handle both array and object responses
+      if (Array.isArray(data)) {
+        setWorkspaces(data);
+      } else if (data && Array.isArray(data.results)) {
+        setWorkspaces(data.results);
+      } else if (data && data.workspaces) {
+        setWorkspaces(data.workspaces);
+      } else {
+        console.warn('⚠️ Unexpected workspaces response format:', data);
+        setWorkspaces([]);
+      }
     } catch (error) {
       console.error('❌ Failed to load workspaces:', error);
-      
-      // Handle specific error cases
-      if (error.message.includes('401') || error.message.includes('Authentication')) {
-        setError('Authentication failed. Please login again.');
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        setTimeout(() => navigate('/login'), 2000);
-      } else if (error.message.includes('Network') || error.message.includes('fetch')) {
-        setError('Network error. Please check your connection and try again.');
-      } else {
-        setError(error.message || 'Failed to load workspaces');
-      }
+      handleWorkspaceError(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleWorkspaceError = (error) => {
+    const errorMessage = error.message || 'Failed to load workspaces';
+    
+    if (errorMessage.includes('401') || errorMessage.includes('Authentication')) {
+      setError('Session expired. Please login again.');
+      // Clear tokens and redirect
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('chat_token');
+      setTimeout(() => navigate('/login'), 3000);
+    } else if (errorMessage.includes('Network') || errorMessage.includes('fetch')) {
+      setError('Network error. Please check your connection.');
+    } else {
+      setError(errorMessage);
     }
   };
 
@@ -114,41 +109,66 @@ export default function WorkspaceSelector() {
         description: `Workspace for ${newWorkspace.name.trim()}`
       };
       
+      console.log('📦 Sending workspace data:', workspaceData);
       const createdWorkspace = await workspaceService.createWorkspace(workspaceData);
       console.log('✅ Workspace created:', createdWorkspace);
       
+      // Reset form and reload
       setNewWorkspace({ name: '', subdomain: '' });
       setShowCreateForm(false);
-      await loadWorkspaces(); // Reload the list
+      await loadWorkspaces();
+      
     } catch (error) {
       console.error('❌ Failed to create workspace:', error);
-      setError(error.message || 'Failed to create workspace');
+      setError(error.message || 'Failed to create workspace. Please try again.');
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem('chat_token');
+    localStorage.removeItem('user_email');
     navigate('/login');
   };
 
-  // Debug component to check authentication status
-  const DebugInfo = () => (
-    <div className="fixed top-4 right-4 bg-gray-800 p-4 rounded-lg text-xs text-gray-400 max-w-xs border border-gray-700">
-      <div className="font-semibold mb-2">Debug Information</div>
-      <div>🔐 Authenticated: {isAuthenticated() ? 'Yes' : 'No'}</div>
-      <div>🔄 Loading: {loading ? 'Yes' : 'No'}</div>
-      <div>📊 Workspaces: {workspaces.length}</div>
-      <div>📝 Create Form: {showCreateForm ? 'Open' : 'Closed'}</div>
-      {error && <div className="text-red-400 mt-2">❌ Error: {error}</div>}
-      <button
-        onClick={handleLogout}
-        className="mt-2 text-red-400 hover:text-red-300 text-xs"
-      >
-        🚪 Logout
-      </button>
-    </div>
-  );
+  const refreshWorkspaces = () => {
+    loadWorkspaces();
+  };
+
+  // Debug component
+  const DebugInfo = () => {
+    const token = localStorage.getItem('access_token');
+    return (
+      <div className="fixed top-4 right-4 bg-gray-800 p-4 rounded-lg text-xs text-gray-400 max-w-xs border border-gray-700 z-50">
+        <div className="font-semibold mb-2">Debug Information</div>
+        <div>🔐 Authenticated: {isAuthenticated() ? 'Yes' : 'No'}</div>
+        <div>🔐 Token: {token ? `${token.substring(0, 15)}...` : 'None'}</div>
+        <div>🔄 Loading: {loading ? 'Yes' : 'No'}</div>
+        <div>📊 Workspaces: {workspaces.length}</div>
+        <div>📝 Create Form: {showCreateForm ? 'Open' : 'Closed'}</div>
+        <div className="mt-2 space-y-1">
+          <button
+            onClick={refreshWorkspaces}
+            className="block w-full text-blue-400 hover:text-blue-300 text-left"
+          >
+            🔄 Refresh
+          </button>
+          <button
+            onClick={handleLogout}
+            className="block w-full text-red-400 hover:text-red-300 text-left"
+          >
+            🚪 Logout
+          </button>
+        </div>
+        {error && (
+          <div className="mt-2 p-2 bg-red-900/50 rounded text-red-400">
+            ❌ {error}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -157,7 +177,9 @@ export default function WorkspaceSelector() {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-400">Loading workspaces...</p>
-          <p className="text-gray-500 text-sm mt-2">Checking authentication...</p>
+          <p className="text-gray-500 text-sm mt-2">
+            {isAuthenticated() ? 'Fetching your workspaces...' : 'Checking authentication...'}
+          </p>
         </div>
       </div>
     );
@@ -185,7 +207,7 @@ export default function WorkspaceSelector() {
         </div>
 
         {/* Error Display */}
-        {error && (
+        {error && !error.includes('Session expired') && (
           <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
@@ -194,14 +216,24 @@ export default function WorkspaceSelector() {
                 </svg>
                 {error}
               </div>
-              {error.includes('Authentication') && (
-                <button
-                  onClick={() => navigate('/login')}
-                  className="text-red-300 hover:text-white text-sm underline"
-                >
-                  Go to Login
-                </button>
-              )}
+              <button
+                onClick={refreshWorkspaces}
+                className="text-red-300 hover:text-white text-sm underline"
+              >
+                Try Again
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Session expired warning */}
+        {error.includes('Session expired') && (
+          <div className="mb-6 p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-200">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              {error}
             </div>
           </div>
         )}
@@ -228,12 +260,17 @@ export default function WorkspaceSelector() {
                     </p>
                   </div>
                 </div>
+                {workspace.description && (
+                  <p className="text-gray-500 text-sm mb-4 line-clamp-2">
+                    {workspace.description}
+                  </p>
+                )}
                 <div className="mt-4 flex justify-between text-sm text-gray-400">
                   <span className="flex items-center">
                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
                     </svg>
-                    {workspace.member_count || 0}
+                    {workspace.member_count || 1}
                   </span>
                   <span className="flex items-center">
                     <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

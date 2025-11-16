@@ -1,5 +1,6 @@
+// src/contexts/chat/WebSocketContext.jsx
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import useAuthStore from '../../stores/authStore'; // Correct path to your Zustand store
+import useAuthStore from '../../stores/authStore';
 
 const WebSocketContext = createContext();
 
@@ -18,23 +19,52 @@ export function WebSocketProvider({ children }) {
   const [typingUsers, setTypingUsers] = useState({});
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   
-  // Use Zustand store from src/stores/
   const { user, isAuthenticated } = useAuthStore();
   
   const socketsRef = useRef({});
   const reconnectTimeoutsRef = useRef({});
+  const authCheckTimeoutRef = useRef(null);
 
-  // Auto-reconnect when user authentication changes
+  // FIXED: Delayed authentication check to wait for Zustand store
   useEffect(() => {
-    if (isAuthenticated && user) {
-      console.log('👤 User authenticated, ready for WebSocket connections');
-    } else {
-      console.log('👤 User not authenticated, disconnecting WebSockets');
-      disconnectAll();
+    // Clear any existing timeout
+    if (authCheckTimeoutRef.current) {
+      clearTimeout(authCheckTimeoutRef.current);
     }
+
+    // Wait a bit for Zustand store to populate
+    authCheckTimeoutRef.current = setTimeout(() => {
+      const token = localStorage.getItem('access_token');
+      const userEmail = localStorage.getItem('user_email');
+      
+      console.log('🔐 WebSocket Auth Check (Delayed):', {
+        isAuthenticated,
+        hasUser: !!user,
+        userFromStore: user?.email,
+        userFromStorage: userEmail,
+        hasToken: !!token,
+        shouldConnect: !!(token && (user || userEmail))
+      });
+
+      if (token && (user || userEmail)) {
+        console.log('✅ WebSocket: User authenticated, ready for connections');
+        setConnectionStatus('ready');
+      } else {
+        console.log('🚫 WebSocket: User not authenticated, disconnecting');
+        disconnectAll();
+        setConnectionStatus('disconnected');
+      }
+    }, 500); // Wait 500ms for store to populate
+
+    return () => {
+      if (authCheckTimeoutRef.current) {
+        clearTimeout(authCheckTimeoutRef.current);
+      }
+    };
   }, [user, isAuthenticated]);
 
   const getAuthToken = () => {
+    // Check localStorage directly for token
     const token = localStorage.getItem('access_token');
     
     if (!token) {
@@ -42,18 +72,46 @@ export function WebSocketProvider({ children }) {
       return null;
     }
     
-    console.log('🔐 Using token for WebSocket:', token.substring(0, 20) + '...');
+    console.log('🔐 WebSocket Token available:', token.substring(0, 20) + '...');
     return token;
   };
 
+  const getCurrentUser = () => {
+    // Try to get user from store first, then fallback to localStorage
+    if (user) {
+      return user;
+    }
+    
+    // Fallback to localStorage data
+    const userEmail = localStorage.getItem('user_email');
+    if (userEmail) {
+      return {
+        email: userEmail,
+        id: localStorage.getItem('user_id') || 'unknown',
+        display_name: localStorage.getItem('user_display_name') || userEmail
+      };
+    }
+    
+    return null;
+  };
+
+  const isUserAuthenticated = () => {
+    const token = getAuthToken();
+    const currentUser = getCurrentUser();
+    return !!(token && currentUser);
+  };
+
+  const getWebSocketBaseURL = () => {
+    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:9000';
+    return apiUrl.replace(/^http/, 'ws');
+  };
+
   const cleanupSocket = (key) => {
-    // Clear reconnect timeout
     if (reconnectTimeoutsRef.current[key]) {
       clearTimeout(reconnectTimeoutsRef.current[key]);
       delete reconnectTimeoutsRef.current[key];
     }
 
-    // Clean up socket references
     const newSockets = { ...socketsRef.current };
     if (newSockets[key]) {
       delete newSockets[key];
@@ -65,7 +123,6 @@ export function WebSocketProvider({ children }) {
   };
 
   const scheduleReconnect = (key, url) => {
-    // Don't schedule multiple reconnects
     if (reconnectTimeoutsRef.current[key]) {
       return;
     }
@@ -78,17 +135,14 @@ export function WebSocketProvider({ children }) {
   };
 
   const connectWebSocket = (url, key) => {
-    // Check authentication first using Zustand
-    if (!isAuthenticated || !user) {
-      console.log('🚫 Cannot connect WebSocket - user not authenticated');
+    // FIXED: Use the enhanced authentication check
+    if (!isUserAuthenticated()) {
+      console.error('❌ Cannot connect WebSocket - user not authenticated');
       return null;
     }
 
     const token = getAuthToken();
-    if (!token) {
-      console.error('❌ Cannot connect WebSocket - no token available');
-      return null;
-    }
+    const currentUser = getCurrentUser();
 
     // Close existing connection if any
     if (socketsRef.current[key]) {
@@ -98,7 +152,10 @@ export function WebSocketProvider({ children }) {
 
     try {
       console.log(`🔌 Creating WebSocket connection to: ${url}`);
-      const ws = new WebSocket(url);
+      
+      // Add token to URL for Django Channels authentication
+      const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
+      const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         console.log(`✅ WebSocket connected successfully: ${key}`);
@@ -111,12 +168,14 @@ export function WebSocketProvider({ children }) {
           delete reconnectTimeoutsRef.current[key];
         }
 
-        // Send authentication immediately after connection
+        // Send authentication message
         const authMessage = {
           type: 'authenticate',
-          token: token
+          token: token,
+          user_id: currentUser?.id,
+          email: currentUser?.email
         };
-        console.log('🔐 Sending WebSocket authentication...');
+        console.log('🔐 Sending WebSocket authentication...', authMessage);
         ws.send(JSON.stringify(authMessage));
       };
 
@@ -127,20 +186,11 @@ export function WebSocketProvider({ children }) {
           
           switch (data.type) {
             case 'new_message':
-              handleNewMessage(data);
-              break;
-              
             case 'message_created':
               handleNewMessage(data);
               break;
               
             case 'user_typing':
-              setTypingUsers(prev => ({
-                ...prev,
-                [data.room_id]: data.users || [data.user]
-              }));
-              break;
-              
             case 'typing_indicator':
               setTypingUsers(prev => ({
                 ...prev,
@@ -166,16 +216,19 @@ export function WebSocketProvider({ children }) {
               break;
 
             case 'ping':
-              // Respond to ping with pong
               ws.send(JSON.stringify({ type: 'pong' }));
               break;
 
             case 'user_joined':
-              console.log(`👤 User joined: ${data.user} in room ${data.room_id}`);
+              console.log(`👤 User joined: ${data.user_id} in room ${data.room_id}`);
               break;
 
             case 'user_left':
-              console.log(`👤 User left: ${data.user} from room ${data.room_id}`);
+              console.log(`👤 User left: ${data.user_id} from room ${data.room_id}`);
+              break;
+
+            case 'welcome':
+              console.log('👋 WebSocket welcome message:', data.message);
               break;
 
             default:
@@ -194,8 +247,8 @@ export function WebSocketProvider({ children }) {
         });
         
         setIsConnected(prev => ({ ...prev, [key]: false }));
+        setConnectionStatus('disconnected');
         
-        // Only reconnect for unexpected closures (not manual disconnects)
         if (event.code !== 1000 && event.code !== 1001) {
           console.log(`🔄 Unexpected disconnect, will attempt reconnect for: ${key}`);
           scheduleReconnect(key, url);
@@ -234,77 +287,114 @@ export function WebSocketProvider({ children }) {
 
     setMessages(prev => ({
       ...prev,
-      [roomId]: [...(prev[roomId] || []), message]
+      [roomId]: [...(prev[roomId] || []), {
+        ...message,
+        id: message.id || Date.now().toString(),
+        timestamp: message.timestamp || new Date().toISOString()
+      }]
     }));
   };
 
-  // Connect to specific workspace
+  // Connect to workspace chat
   const connectToWorkspace = (workspaceId) => {
     const key = `workspace_${workspaceId}`;
-    const url = `ws://localhost:9000/ws/workspace/${workspaceId}/`;
-    return connectWebSocket(url, key);
-  };
-
-  // Connect to specific room (channels, DMs, etc.)
-  const connectToRoom = (roomId, roomType = 'room') => {
-    const key = `${roomType}_${roomId}`;
-    const url = `ws://localhost:9000/ws/${roomType}/${roomId}/`;
+    const baseUrl = getWebSocketBaseURL();
+    const url = `${baseUrl}/ws/chat/${workspaceId}/`;
+    console.log(`🔌 Connecting to workspace WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
   // Connect to specific channel
   const connectToChannel = (channelId) => {
-    return connectToRoom(channelId, 'channel');
+    const key = `channel_${channelId}`;
+    const baseUrl = getWebSocketBaseURL();
+    const url = `${baseUrl}/ws/chat/channel/${channelId}/`;
+    console.log(`🔌 Connecting to channel WebSocket: ${url}`);
+    return connectWebSocket(url, key);
   };
 
   // Connect to DM
   const connectToDM = (dmId) => {
-    return connectToRoom(dmId, 'dm');
+    const key = `dm_${dmId}`;
+    const baseUrl = getWebSocketBaseURL();
+    const url = `${baseUrl}/ws/chat/dm/${dmId}/`;
+    console.log(`🔌 Connecting to DM WebSocket: ${url}`);
+    return connectWebSocket(url, key);
   };
 
   // Connect to notifications
   const connectToNotifications = () => {
     const key = 'notifications';
-    const url = 'ws://localhost:9000/ws/notifications/';
+    const baseUrl = getWebSocketBaseURL();
+    const url = `${baseUrl}/ws/notifications/`;
+    console.log(`🔌 Connecting to notifications WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
+  // Generic connect function
+  const connect = (roomId, roomType = 'workspace') => {
+    switch (roomType) {
+      case 'workspace':
+        return connectToWorkspace(roomId);
+      case 'channel':
+        return connectToChannel(roomId);
+      case 'dm':
+        return connectToDM(roomId);
+      default:
+        console.error(`❌ Unknown room type: ${roomType}`);
+        return null;
+    }
+  };
+
   // Send message to specific room
-  const sendMessage = (roomId, content, roomType = 'room') => {
+  const sendMessage = (roomId, content, roomType = 'workspace') => {
     const key = `${roomType}_${roomId}`;
     const socket = socketsRef.current[key];
     
     if (socket && isConnected[key]) {
+      const currentUser = getCurrentUser();
       const message = {
-        type: 'send_message',
+        type: 'chat_message',
         room_id: roomId,
         room_type: roomType,
         content: content,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        user_id: currentUser?.id,
+        user_email: currentUser?.email
       };
       console.log('📤 Sending message:', message);
       socket.send(JSON.stringify(message));
       return true;
     } else {
       console.error(`❌ Cannot send message - WebSocket not connected: ${key}`);
+      console.log('🔍 Socket state:', {
+        socketExists: !!socket,
+        isConnected: isConnected[key],
+        allConnections: Object.keys(socketsRef.current)
+      });
       return false;
     }
   };
 
   // Send typing indicator
-  const sendTyping = (roomId, isTyping, roomType = 'room') => {
+  const sendTyping = (roomId, isTyping, roomType = 'workspace') => {
     const key = `${roomType}_${roomId}`;
     const socket = socketsRef.current[key];
     
     if (socket && isConnected[key]) {
+      const currentUser = getCurrentUser();
       const typingMessage = {
         type: 'typing',
         room_id: roomId,
         room_type: roomType,
         is_typing: isTyping,
-        user_id: user?.id
+        user_id: currentUser?.id,
+        user_email: currentUser?.email
       };
+      console.log('⌨️ Sending typing indicator:', typingMessage);
       socket.send(JSON.stringify(typingMessage));
+    } else {
+      console.warn(`⚠️ Cannot send typing - WebSocket not connected: ${key}`);
     }
   };
 
@@ -319,13 +409,14 @@ export function WebSocketProvider({ children }) {
   };
 
   // Check if connected to a specific room
-  const isRoomConnected = (roomId, roomType = 'room') => {
+  const isRoomConnected = (roomId, roomType = 'workspace') => {
     const key = `${roomType}_${roomId}`;
     return !!isConnected[key];
   };
 
   const disconnect = (key) => {
     if (socketsRef.current[key]) {
+      console.log(`🔌 Manually disconnecting WebSocket: ${key}`);
       socketsRef.current[key].close(1000, 'Manual disconnect');
       cleanupSocket(key);
     }
@@ -354,6 +445,10 @@ export function WebSocketProvider({ children }) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      console.log('🧹 WebSocketProvider unmounting, cleaning up...');
+      if (authCheckTimeoutRef.current) {
+        clearTimeout(authCheckTimeoutRef.current);
+      }
       disconnectAll();
     };
   }, []);
@@ -371,8 +466,8 @@ export function WebSocketProvider({ children }) {
     getTypingUsers,
     
     // Connection methods
+    connect,
     connectToWorkspace,
-    connectToRoom,
     connectToChannel,
     connectToDM,
     connectToNotifications,
@@ -384,7 +479,11 @@ export function WebSocketProvider({ children }) {
     
     // Disconnection methods
     disconnect,
-    disconnectAll
+    disconnectAll,
+    
+    // Utility methods
+    isUserAuthenticated,
+    getCurrentUser
   };
 
   return (
