@@ -32,6 +32,21 @@ export function WebSocketProvider({ children }) {
   const reconnectTimeoutsRef = useRef({});
   const authCheckTimeoutRef = useRef(null);
 
+  // Debug effect for messages
+  useEffect(() => {
+    console.log('🔍 WebSocketContext Messages State:', {
+      totalRooms: Object.keys(messages).length,
+      rooms: Object.keys(messages).map(roomId => ({
+        roomId,
+        messageCount: messages[roomId]?.length || 0,
+        messages: messages[roomId]?.map(m => ({
+          id: m.id,
+          content: m.content?.substring(0, 30)
+        }))
+      }))
+    });
+  }, [messages]);
+
   // FIXED: Single authentication check with proper cleanup
   useEffect(() => {
     let mounted = true;
@@ -178,6 +193,46 @@ export function WebSocketProvider({ children }) {
     }, 5000); // Increased to 5 seconds
   };
 
+  // FIXED: Enhanced message parsing to handle multiple JSON objects
+  const parseWebSocketMessage = (rawData) => {
+    console.log('📨 RAW WebSocket message received:', rawData);
+    
+    // Handle multiple JSON objects in one message
+    const messages = [];
+    
+    try {
+      // First try to parse as single JSON object
+      const singleData = JSON.parse(rawData);
+      messages.push(singleData);
+      console.log('✅ Parsed as single JSON object');
+    } catch (singleError) {
+      console.log('⚠️ Single JSON parse failed, trying to handle multiple objects...');
+      
+      // Try to handle malformed JSON with multiple objects
+      try {
+        // Look for JSON-like structures
+        const jsonMatches = rawData.match(/\{.*?\}/g);
+        if (jsonMatches) {
+          jsonMatches.forEach(match => {
+            try {
+              const parsed = JSON.parse(match);
+              messages.push(parsed);
+            } catch (matchError) {
+              console.warn('⚠️ Failed to parse JSON match:', match);
+            }
+          });
+          console.log(`✅ Found ${messages.length} JSON objects in message`);
+        } else {
+          console.error('❌ No JSON objects found in message');
+        }
+      } catch (multiError) {
+        console.error('❌ Failed to parse WebSocket message:', multiError);
+      }
+    }
+    
+    return messages;
+  };
+
   // FIXED: Enhanced WebSocket connection with better resource management
   const connectWebSocket = (url, key) => {
     // Enhanced authentication check
@@ -245,61 +300,115 @@ export function WebSocketProvider({ children }) {
 
       ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data);
-          console.log('📨 WebSocket message received:', data.type);
+          console.log('🚨 INCOMING WEBSOCKET MESSAGE:', {
+            rawData: event.data,
+            length: event.data.length,
+            type: typeof event.data
+          });
           
-          switch (data.type) {
-            case 'new_message':
-            case 'message_created':
-              handleNewMessage(data);
-              break;
-              
-            case 'user_typing':
-            case 'typing_indicator':
-              setTypingUsers(prev => ({
-                ...prev,
-                [data.room_id]: data.users || [data.user]
-              }));
-              break;
+          // Use enhanced message parsing
+          const messageDataArray = parseWebSocketMessage(event.data);
+          
+          console.log(`🔄 Processing ${messageDataArray.length} parsed messages`);
+          
+          // Process each parsed message
+          messageDataArray.forEach((data, index) => {
+            if (!data || typeof data !== 'object') {
+              console.log(`❌ [${index}] Invalid message data:`, data);
+              return;
+            }
+            
+            console.log(`📦 [${index}] Processing parsed message:`, {
+              type: data.type,
+              hasContent: !!data.content,
+              content: data.content,
+              hasMessage: !!data.message,
+              roomId: data.room_id || data.channel_id || data.room,
+              fullData: data
+            });
+            
+            // FIXED: Handle different message types including chat messages
+            switch (data.type) {
+              case 'new_message':
+              case 'message_created':
+              case 'chat_message':
+                console.log('💬 🚨 CHAT MESSAGE RECEIVED - STORING:', data);
+                // FIXED: Handle both wrapped and direct message formats
+                if (data.message) {
+                  // Django sends: {'type': 'chat_message', 'message': {message_data}}
+                  handleNewMessage(data.message);
+                } else {
+                  // Direct message format
+                  handleNewMessage(data);
+                }
+                break;
+                
+              case 'user_typing':
+              case 'typing_indicator':
+                console.log('⌨️ Handling typing indicator:', data);
+                setTypingUsers(prev => ({
+                  ...prev,
+                  [data.room_id]: data.users || [data.user]
+                }));
+                break;
 
-            case 'error':
-              console.error('WebSocket error:', data.message);
-              if (data.message.includes('auth') || data.message.includes('token')) {
-                console.error('🔐 Authentication error, closing connection');
-                ws.close(1008, 'Authentication failed');
-              }
-              break;
-              
-            case 'authentication_result':
-              if (data.success) {
-                console.log('✅ WebSocket authentication successful');
-              } else {
-                console.error('❌ WebSocket authentication failed:', data.message);
-                ws.close(1008, 'Authentication failed');
-              }
-              break;
+              case 'error':
+                console.error('❌ WebSocket error:', data.message);
+                if (data.message.includes('auth') || data.message.includes('token')) {
+                  console.error('🔐 Authentication error, closing connection');
+                  ws.close(1008, 'Authentication failed');
+                }
+                break;
+                
+              case 'authentication_result':
+                if (data.success) {
+                  console.log('✅ WebSocket authentication successful');
+                } else {
+                  console.error('❌ WebSocket authentication failed:', data.message);
+                  ws.close(1008, 'Authentication failed');
+                }
+                break;
 
-            case 'ping':
-              ws.send(JSON.stringify({ type: 'pong' }));
-              break;
+              case 'ping':
+                console.log('🏓 Ping received, sending pong');
+                ws.send(JSON.stringify({ type: 'pong' }));
+                break;
 
-            case 'user_joined':
-              console.log(`👤 User joined: ${data.user_id}`);
-              break;
+              case 'user_joined':
+                console.log(`👤 User joined: ${data.user_id}`);
+                break;
 
-            case 'user_left':
-              console.log(`👤 User left: ${data.user_id}`);
-              break;
+              case 'user_left':
+                console.log(`👤 User left: ${data.user_id}`);
+                break;
 
-            case 'welcome':
-              console.log('👋 WebSocket welcome message');
-              break;
+              case 'welcome':
+                console.log('👋 WebSocket welcome message');
+                break;
 
-            default:
-              console.log('📨 Unknown message type:', data.type);
-          }
+              case 'user_presence':
+                console.log('👤 User presence update:', data);
+                break;
+
+              case 'connection_established':
+                console.log('✅ WebSocket connection confirmed:', data);
+                break;
+
+              case 'message_sent':
+                console.log('✅ Message delivery confirmed:', data);
+                break;
+
+              default:
+                console.log('📨 Unknown message type:', data.type);
+                // FIXED: Try to handle it as a message anyway if it has content
+                if (data.content || data.message) {
+                  console.log('💬 Treating as chat message (no type):', data);
+                  handleNewMessage(data);
+                }
+            }
+          });
         } catch (error) {
-          console.error('❌ Error parsing WebSocket message:', error);
+          console.error('❌ Error processing WebSocket message:', error);
         }
       };
 
@@ -353,23 +462,64 @@ export function WebSocketProvider({ children }) {
     }
   };
 
+  // FIXED: Enhanced message handling to properly store messages
   const handleNewMessage = (data) => {
-    const roomId = data.room_id || data.channel_id || data.dm_id;
-    const message = data.message || data;
+    console.log('💬 Processing new message for storage:', data);
+    
+    // Extract room ID from different possible fields
+    const roomId = data.room_id || data.channel_id || data.channel || data.room;
     
     if (!roomId) {
       console.error('❌ No room ID in message:', data);
       return;
     }
 
-    setMessages(prev => ({
-      ...prev,
-      [roomId]: [...(prev[roomId] || []), {
-        ...message,
-        id: message.id || Date.now().toString(),
-        timestamp: message.timestamp || new Date().toISOString()
-      }]
-    }));
+    // Extract message data from different possible structures
+    const messageData = data.message || data;
+    
+    // Create proper message object
+    const message = {
+      id: messageData.id || `ws-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      content: messageData.content || data.content,
+      user_id: messageData.user_id || data.user_id,
+      user_email: messageData.user_email || data.user_email,
+      user: messageData.user || {
+        id: messageData.user_id || data.user_id,
+        email: messageData.user_email || data.user_email,
+        display_name: messageData.display_name || data.display_name || messageData.username || 'User'
+      },
+      timestamp: messageData.timestamp || data.timestamp || new Date().toISOString(),
+      message_type: messageData.message_type || 'text',
+      is_edited: messageData.is_edited || false,
+      reactions: messageData.reactions || [],
+      reply_to: messageData.reply_to || null
+    };
+
+    console.log('💾 Storing message for room:', roomId, message);
+
+    // Store the message
+    setMessages(prev => {
+      const existingMessages = prev[roomId] || [];
+      
+      // Check if message already exists (avoid duplicates)
+      const messageExists = existingMessages.some(msg => 
+        msg.id === message.id || 
+        (msg.content === message.content && msg.timestamp === message.timestamp)
+      );
+      
+      if (messageExists) {
+        console.log('⚠️ Message already exists, skipping:', message.id);
+        return prev;
+      }
+
+      const updatedMessages = {
+        ...prev,
+        [roomId]: [...existingMessages, message]
+      };
+      
+      console.log(`📊 Messages for room ${roomId}:`, updatedMessages[roomId].length);
+      return updatedMessages;
+    });
   };
 
   // =============================================================================
@@ -499,7 +649,9 @@ export function WebSocketProvider({ children }) {
 
   // Get messages for a specific room
   const getMessages = (roomId) => {
-    return messages[roomId] || [];
+    const roomMessages = messages[roomId] || [];
+    console.log(`📨 Getting ${roomMessages.length} messages for room ${roomId}`);
+    return roomMessages;
   };
 
   // Get typing users for a specific room

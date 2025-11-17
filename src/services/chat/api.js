@@ -463,11 +463,136 @@ class ChatApiService {
     });
   }
 
+  // =============================================================================
+  // REACTION METHODS - FIXED BASED ON POSTMAN WORKING ENDPOINT
+  // =============================================================================
+
   async reactToMessage(messageId, reactionType) {
-    return await this.request(`/messages/${messageId}/react/`, {
-      method: 'POST',
-      body: JSON.stringify({ reaction_type: reactionType }),
-    });
+    try {
+      console.log('🎯 Reacting to message:', { 
+        messageId, 
+        reactionType,
+        endpoint: `/messages/${messageId}/react/`
+      });
+
+      // Use the working endpoint format from Postman
+      const response = await this.request(`/messages/${messageId}/react/`, {
+        method: 'POST',
+        body: JSON.stringify({ reaction_type: reactionType }),
+      });
+
+      console.log('✅ Reaction successful:', response);
+      return response;
+
+    } catch (error) {
+      console.error('❌ Reaction failed:', error);
+      
+      // Provide optimistic fallback for better UX
+      return this.createOptimisticReaction(messageId, reactionType);
+    }
+  }
+
+  async removeReaction(messageId, reactionType) {
+    try {
+      console.log('🗑️ Removing reaction:', { 
+        messageId, 
+        reactionType
+      });
+
+      // For removal, try DELETE on the same endpoint
+      const response = await this.request(`/messages/${messageId}/react/`, {
+        method: 'DELETE',
+        body: JSON.stringify({ reaction_type: reactionType }),
+      });
+
+      console.log('✅ Reaction removed:', response);
+      return response;
+
+    } catch (error) {
+      console.error('❌ Remove reaction failed:', error);
+      return { success: true, is_optimistic: true };
+    }
+  }
+
+  // Helper method for optimistic updates
+  createOptimisticReaction(messageId, reactionType) {
+    const currentUser = {
+      id: 'current-user',
+      email: 'user@example.com',
+      display_name: 'You'
+    };
+
+    return {
+      data: {
+        id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        message_id: messageId,
+        reaction_type: reactionType,
+        user: currentUser,
+        user_id: currentUser.id,
+        created_at: new Date().toISOString(),
+        is_optimistic: true
+      },
+      is_optimistic: true,
+      success: true
+    };
+  }
+
+  // Get message reactions
+  async getMessageReactions(messageId) {
+    try {
+      console.log('📊 Getting reactions for message:', messageId);
+      
+      const response = await this.request(`/messages/${messageId}/reactions/`);
+      console.log('✅ Got reactions:', response);
+      return response;
+      
+    } catch (error) {
+      console.error('❌ Get reactions failed:', error);
+      return { results: [], is_fallback: true };
+    }
+  }
+
+  // Debug method to test reaction endpoints
+  async debugReactionEndpoints(messageId) {
+    console.log('🔍 Debugging reaction endpoints for message:', messageId);
+    
+    const tests = [
+      { method: 'POST', endpoint: `/messages/${messageId}/react/`, body: { reaction_type: 'like' } },
+      { method: 'DELETE', endpoint: `/messages/${messageId}/react/`, body: { reaction_type: 'like' } },
+      { method: 'GET', endpoint: `/messages/${messageId}/reactions/` },
+    ];
+
+    const results = [];
+    
+    for (const test of tests) {
+      try {
+        console.log(`🧪 Testing ${test.method} ${test.endpoint}`);
+        const response = await this.request(test.endpoint, {
+          method: test.method,
+          body: test.body ? JSON.stringify(test.body) : undefined,
+        });
+        
+        results.push({
+          endpoint: test.endpoint,
+          method: test.method,
+          status: 'success',
+          data: response
+        });
+        
+        console.log(`✅ ${test.method} ${test.endpoint}: SUCCESS`);
+      } catch (error) {
+        results.push({
+          endpoint: test.endpoint,
+          method: test.method,
+          status: 'error',
+          error: error.message
+        });
+        console.log(`❌ ${test.method} ${test.endpoint}: ${error.message}`);
+      }
+    }
+    
+    console.log('📊 Reaction endpoint debug results:', results);
+    return results;
   }
 
   async editMessage(messageId, content) {
@@ -487,24 +612,37 @@ class ChatApiService {
   // FILE UPLOAD METHODS
   // =============================================================================
 
-  async uploadFile(file, roomId = null, description = '') {
+  async uploadFile(file, channelId = null, description = '') {
     const formData = new FormData();
-    formData.append('file', file);
     
-    if (roomId) {
-      formData.append('room_id', roomId);
+    // EXACTLY match what works in Postman
+    formData.append('file', file); // This is the key field name
+    
+    // Add channel_id if provided (matches your Postman working example)
+    if (channelId) {
+      formData.append('channel_id', channelId);
     }
-    if (description) {
-      formData.append('description', description);
-    }
+    
+    // Add message_type as 'file' (matches your Postman working example)
+    formData.append('message_type', 'file');
 
-    const url = `${this.baseURL}/upload/`;
+    const url = `${this.baseURL}/upload/`; // Make sure this endpoint is correct
     const token = this.getToken();
     
+    console.log('📤 Uploading file with exact Postman format:', {
+      url,
+      file: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      channel_id: channelId,
+      message_type: 'file'
+    });
+
     const config = {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
+        // DO NOT set Content-Type - let browser set it with boundary
       },
       body: formData,
     };
@@ -513,28 +651,56 @@ class ChatApiService {
       console.log('🌐 Making chat file upload to:', url);
       const response = await fetch(url, config);
       
+      console.log(`📡 File upload response: ${response.status} ${response.statusText}`);
+      
       if (response.status === 401) {
         console.error('❌ Chat file upload: 401 Unauthorized');
-        // Try with Token auth
+        // Try with Token auth as fallback
         config.headers.Authorization = `Token ${token}`;
         const retryResponse = await fetch(url, config);
         if (retryResponse.ok) {
-          return await retryResponse.json();
+          const result = await retryResponse.json();
+          console.log('✅ File upload successful with Token auth:', result);
+          return result;
         }
-        return { success: false, error: 'Authentication failed' };
+        throw new Error('Authentication failed for file upload');
       }
 
       if (!response.ok) {
-        throw new Error(`Chat file upload error: ${response.status}`);
+        // Get detailed error information
+        let errorDetails = `HTTP ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorDetails = errorData.message || errorData.detail || JSON.stringify(errorData);
+        } catch (e) {
+          // If response isn't JSON, use status text
+          errorDetails = response.statusText;
+        }
+        throw new Error(`Chat file upload error: ${errorDetails}`);
       }
 
-      return await response.json();
+      const result = await response.json();
+      console.log('✅ File upload successful:', result);
+      return result;
+      
     } catch (error) {
-      console.error('Chat file upload failed:', error);
-      return { success: false, error: error.message };
+      console.error('❌ Chat file upload failed:', error);
+      
+      // Provide more specific error messages
+      if (error.message.includes('Failed to fetch')) {
+        throw new Error('Network error: Cannot connect to server. Check if the upload endpoint exists.');
+      }
+      if (error.message.includes('404')) {
+        throw new Error('Upload endpoint not found. Check if /api/chat/upload/ exists on the server.');
+      }
+      if (error.message.includes('400')) {
+        throw new Error('Bad request: The server rejected the file. Check file type and size limits.');
+      }
+      
+      throw new Error(`File upload failed: ${error.message}`);
     }
   }
-
+ 
   // =============================================================================
   // HEALTH CHECK
   // =============================================================================
@@ -586,6 +752,70 @@ class ChatApiService {
       canUseChatAPI: !!token
     };
   }
+
+  // =============================================================================
+  // MISSING METHODS - ADDED HERE
+  // =============================================================================
+
+  async getPinnedMessages(channelId) {
+    try {
+      console.log('📌 Fetching pinned messages for channel:', channelId);
+      const response = await this.request(`/channels/${channelId}/pinned-messages/`);
+      console.log('✅ Pinned messages:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to fetch pinned messages:', error);
+      // Return empty array as fallback
+      return { results: [] };
+    }
+  }
+
+  async pinMessage(messageId) {
+    try {
+      console.log('📌 Pinning message:', messageId);
+      const response = await this.request(`/messages/${messageId}/pin/`, {
+        method: 'POST',
+      });
+      console.log('✅ Message pinned:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to pin message:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async unpinMessage(messageId) {
+    try {
+      console.log('📌 Unpinning message:', messageId);
+      const response = await this.request(`/messages/${messageId}/unpin/`, {
+        method: 'POST',
+      });
+      console.log('✅ Message unpinned:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to unpin message:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async sendChannelMessage(channelId, content) {
+    try {
+      console.log('📤 Sending message to channel:', { channelId, content });
+      const response = await this.request('/messages/', {
+        method: 'POST',
+        body: JSON.stringify({
+          channel: channelId,
+          content: content,
+          message_type: 'text'
+        }),
+      });
+      console.log('✅ Message sent to channel:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to send channel message:', error);
+      throw error;
+    }
+  }
 }
 
 // Create singleton instance
@@ -624,10 +854,18 @@ export const dmService = {
 
 export const messageService = {
   sendMessage: (data) => chatApiService.sendMessage(data),
+  sendChannelMessage: (channelId, content) => chatApiService.sendChannelMessage(channelId, content),
   replyToMessage: (messageId, content) => chatApiService.replyToMessage(messageId, content),
   reactToMessage: (messageId, reactionType) => chatApiService.reactToMessage(messageId, reactionType),
+  removeReaction: (messageId, reactionType) => chatApiService.removeReaction(messageId, reactionType),
+  getMessageReactions: (messageId) => chatApiService.getMessageReactions(messageId),
+  debugReactionEndpoints: (messageId) => chatApiService.debugReactionEndpoints(messageId),
   editMessage: (messageId, content) => chatApiService.editMessage(messageId, content),
-  deleteMessage: (messageId) => chatApiService.deleteMessage(messageId)
+  deleteMessage: (messageId) => chatApiService.deleteMessage(messageId),
+  getPinnedMessages: (channelId) => chatApiService.getPinnedMessages(channelId),
+  pinMessage: (messageId) => chatApiService.pinMessage(messageId),
+  unpinMessage: (messageId) => chatApiService.unpinMessage(messageId),
+  uploadFile: (file, roomId, description) => chatApiService.uploadFile(file, roomId, description)
 };
 
 export const fileService = {

@@ -1,47 +1,64 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { useWebSocket } from '../../../contexts/chat/WebSocketContext';
+import { useAuth } from '../../../contexts/chat/AuthContext';
 import { messageService, dmService } from '../../../services/chat/api';
+import Message from './Message';
+import MessageInput from './MessageInput';
 
 export default function DirectMessages() {
   const { dmId } = useParams();
-  const { messages, sendMessage, sendTyping } = useWebSocket();
+  const { user } = useAuth();
+  const { sendMessage: sendWsMessage, lastMessage, isConnected } = useWebSocket();
   const [dm, setDm] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [dmMessages, setDmMessages] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [error, setError] = useState(null);
+  const [sending, setSending] = useState(false);
   const messagesEndRef = useRef(null);
 
+  // Load DM data and messages
   useEffect(() => {
     if (dmId) {
       loadDMData();
-      loadMessages();
     }
   }, [dmId]);
 
   const loadDMData = async () => {
     try {
-      // Try to get DM data from your backend
+      setLoading(true);
+      setError(null);
+
+      // Load DM details
       const dmData = await dmService.getDirectMessages();
-      const currentDm = dmData.find(dm => dm.id === parseInt(dmId)) || 
-                       dmData.find(dm => dm.id === dmId);
-      
+      const currentDm = Array.isArray(dmData) 
+        ? dmData.find(d => d.id === dmId || d.id === parseInt(dmId))
+        : null;
+
       if (currentDm) {
         setDm(currentDm);
       } else {
-        // Fallback to mock data if DM not found
+        // Create fallback DM data
         const mockDm = {
           id: dmId,
           other_user: {
             id: '2',
             email: 'user@example.com',
             display_name: 'Direct Message User'
-          }
+          },
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         };
         setDm(mockDm);
       }
+
+      // Load messages
+      await loadMessages();
+
     } catch (error) {
       console.error('Failed to load DM data:', error);
-      // Fallback to basic DM data
+      setError('Failed to load conversation');
+      // Set fallback data
       const mockDm = {
         id: dmId,
         other_user: {
@@ -62,335 +79,357 @@ export default function DirectMessages() {
         page: 1,
         page_size: 50
       });
-      setDmMessages(messagesData.results || messagesData || []);
+      
+      // Handle different response formats
+      const messagesArray = Array.isArray(messagesData) 
+        ? messagesData 
+        : (messagesData.results || messagesData.messages || []);
+      
+      setMessages(messagesArray);
     } catch (error) {
       console.error('Failed to load DM messages:', error);
-      setDmMessages([]);
+      setMessages([]);
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  // Handle WebSocket messages for real-time updates
   useEffect(() => {
-    scrollToBottom();
-  }, [dmMessages]);
+    if (!lastMessage) return;
 
-  // Combine WebSocket messages with API messages
-  const allMessages = [...dmMessages, ...(messages[dmId] || [])];
+    console.log('💬 DM WebSocket message:', lastMessage);
+
+    switch (lastMessage.type) {
+      case 'direct_message':
+        if (lastMessage.dm_id === dmId) {
+          setMessages(prev => {
+            const exists = prev.some(msg => msg.id === lastMessage.message.id);
+            if (!exists) {
+              return [...prev, lastMessage.message];
+            }
+            return prev;
+          });
+        }
+        break;
+
+      case 'message_updated':
+        setMessages(prev => prev.map(msg => 
+          msg.id === lastMessage.message.id ? lastMessage.message : msg
+        ));
+        break;
+
+      case 'message_deleted':
+        setMessages(prev => prev.filter(msg => msg.id !== lastMessage.message_id));
+        break;
+
+      case 'reaction_added':
+        if (lastMessage.dm_id === dmId) {
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === lastMessage.message_id) {
+              const updatedReactions = [...(msg.reactions || [])];
+              const existingIndex = updatedReactions.findIndex(
+                r => r.user_id === lastMessage.user_id && r.reaction_type === lastMessage.reaction_type
+              );
+              
+              if (existingIndex === -1) {
+                updatedReactions.push({
+                  id: Date.now(),
+                  user_id: lastMessage.user_id,
+                  reaction_type: lastMessage.reaction_type,
+                  created_at: new Date().toISOString()
+                });
+              }
+              
+              return { ...msg, reactions: updatedReactions };
+            }
+            return msg;
+          }));
+        }
+        break;
+
+      case 'reaction_removed':
+        if (lastMessage.dm_id === dmId) {
+          setMessages(prev => prev.map(msg => {
+            if (msg.id === lastMessage.message_id) {
+              const updatedReactions = (msg.reactions || []).filter(
+                r => !(r.user_id === lastMessage.user_id && r.reaction_type === lastMessage.reaction_type)
+              );
+              return { ...msg, reactions: updatedReactions };
+            }
+            return msg;
+          }));
+        }
+        break;
+
+      case 'typing_start':
+        // Handle typing indicators
+        console.log('User is typing...', lastMessage.user_id);
+        break;
+
+      case 'typing_stop':
+        // Handle typing stop
+        console.log('User stopped typing...', lastMessage.user_id);
+        break;
+    }
+  }, [lastMessage, dmId]);
+
+  // Scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSendMessage = async (content, file = null) => {
+    if ((!content || !content.trim()) && !file) return;
+
+    setSending(true);
     try {
+      let messageData;
+
       if (file) {
-        // For DMs, you might need a different approach for file upload
-        // Since your backend might not support room_id for DMs, use message service
-        await messageService.uploadFile(file, null, content);
-        // Alternative: Send as regular message with file description
-        // await dmService.sendDMMessage(dmId, content, 'file');
+        // Upload file - for DMs, we might need to handle this differently
+        // Since your API might not support room_id for DMs
+        const uploadResult = await messageService.uploadFile(file, null, content || '');
+        messageData = uploadResult;
       } else {
         // Send text message to DM
-        await dmService.sendDMMessage(dmId, content, 'text');
+        messageData = await dmService.sendDMMessage(dmId, content);
       }
-      // Reload messages to ensure consistency
+
+      // Send via WebSocket for real-time update
+      if (sendWsMessage && messageData) {
+        sendWsMessage({
+          type: 'send_direct_message',
+          dm_id: dmId,
+          content: content,
+          message_type: file ? 'file' : 'text',
+          file: file ? {
+            name: file.name,
+            size: file.size,
+            type: file.type
+          } : null
+        });
+      }
+
+      // Optimistically add to local state
+      const newMessage = {
+        id: `temp-${Date.now()}`,
+        content: content,
+        user: user,
+        created_at: new Date().toISOString(),
+        message_type: file ? 'file' : 'text',
+        file_url: messageData?.file_url,
+        file_name: file?.name,
+        file_size: file?.size,
+        reactions: [],
+        is_temp: true
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
+    } catch (error) {
+      console.error('❌ Failed to send message:', error);
+      setError('Failed to send message: ' + error.message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleReply = async (messageId, replyContent) => {
+    try {
+      const replyData = await messageService.replyToMessage(messageId, replyContent);
+      
+      // Send via WebSocket
+      if (sendWsMessage) {
+        sendWsMessage({
+          type: 'send_direct_message',
+          dm_id: dmId,
+          content: replyContent,
+          message_type: 'text',
+          replied_to: messageId
+        });
+      }
+
+      // Add to local state
+      const repliedMessage = messages.find(msg => msg.id === messageId);
+      const newMessage = {
+        id: `temp-reply-${Date.now()}`,
+        content: replyContent,
+        user: user,
+        created_at: new Date().toISOString(),
+        message_type: 'text',
+        replied_to: repliedMessage,
+        reactions: [],
+        is_temp: true
+      };
+
+      setMessages(prev => [...prev, newMessage]);
+
+    } catch (error) {
+      console.error('❌ Failed to send reply:', error);
+      setError('Failed to send reply: ' + error.message);
+    }
+  };
+
+  const handleReactionUpdate = (messageId, updatedMessage) => {
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId ? { ...msg, ...updatedMessage } : msg
+    ));
+  };
+
+  const handlePinMessage = async (messageId) => {
+    try {
+      const currentMessage = messages.find(msg => msg.id === messageId);
+      if (currentMessage?.is_pinned) {
+        await messageService.unpinMessage(messageId);
+      } else {
+        await messageService.pinMessage(messageId);
+      }
+      // Reload messages to reflect changes
       loadMessages();
     } catch (error) {
-      console.error('Failed to send DM message:', error);
-      alert('Failed to send message: ' + error.message);
+      console.error('❌ Failed to pin/unpin message:', error);
+      setError('Failed to pin message: ' + error.message);
     }
   };
 
-  const handleReplyToMessage = async (messageId, replyContent) => {
-    try {
-      await messageService.replyToMessage(messageId, replyContent);
-      loadMessages(); // Reload to show the reply
-    } catch (error) {
-      console.error('Failed to send reply:', error);
-      alert('Failed to send reply: ' + error.message);
+  const getOtherUser = () => {
+    if (!dm) return null;
+    
+    // Handle different DM response formats
+    if (dm.other_user) {
+      return dm.other_user;
+    } else if (dm.participants && Array.isArray(dm.participants)) {
+      return dm.participants.find(p => p.id !== user?.id);
+    } else if (dm.users && Array.isArray(dm.users)) {
+      return dm.users.find(u => u.id !== user?.id);
     }
+    
+    return null;
   };
 
-  const handleReactToMessage = async (messageId, reactionType) => {
-    try {
-      await messageService.reactToMessage(messageId, reactionType);
-      loadMessages(); // Reload to show the reaction
-    } catch (error) {
-      console.error('Failed to react to message:', error);
-    }
-  };
+  const otherUser = getOtherUser();
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex-1 flex flex-col h-full bg-gray-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading conversation...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !dm) {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-gray-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-red-400 text-lg mb-2">Error</div>
+            <p className="text-gray-400">{error}</p>
+            <button
+              onClick={loadDMData}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-900">
-      {/* DM header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            <h1 className="text-white font-semibold">
-              {dm?.other_user?.display_name || dm?.other_user?.email || 'Direct Message'}
+    <div className="flex-1 flex flex-col h-full bg-gray-900">
+      {/* Header */}
+      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
+        <div className="flex items-center space-x-4">
+          <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center">
+            <span className="text-white font-bold text-sm">
+              {otherUser?.email?.charAt(0).toUpperCase() || 'U'}
+            </span>
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-white">
+              {otherUser?.display_name || otherUser?.email || 'Direct Message'}
             </h1>
-            <div className="text-gray-400 text-sm">
-              Direct message • {allMessages.length} messages
+            <div className="flex items-center space-x-2 mt-1">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+              <p className="text-gray-400 text-sm">
+                {isConnected ? 'Online' : 'Offline'} • {messages.length} messages
+              </p>
             </div>
           </div>
-          <button 
-            onClick={loadMessages}
-            className="px-3 py-1 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded"
-          >
-            Refresh
-          </button>
         </div>
       </div>
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {allMessages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500 space-y-2">
-            <div className="text-lg">No messages yet</div>
-            <div className="text-sm">Start a conversation with {dm?.other_user?.display_name || 'this user'}</div>
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto px-4 py-4">
+        {messages.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center h-full">
+            <div className="text-center text-gray-500">
+              <div className="text-6xl mb-4">💬</div>
+              <h3 className="text-xl font-semibold mb-2">No messages yet</h3>
+              <p>Start a conversation with {otherUser?.display_name || otherUser?.email}</p>
+            </div>
           </div>
         ) : (
-          allMessages.map((message) => (
-            <DMMessageItem 
-              key={message.id} 
-              message={message}
-              onReply={handleReplyToMessage}
-              onReact={handleReactToMessage}
-            />
-          ))
+          <div className="space-y-2">
+            {messages.map((message, index) => {
+              const showAvatar = index === 0 || 
+                messages[index - 1]?.user?.id !== message.user?.id;
+              
+              return (
+                <Message
+                  key={message.id}
+                  message={message}
+                  showAvatar={showAvatar}
+                  onReply={handleReply}
+                  onPin={handlePinMessage}
+                  onReactionUpdate={handleReactionUpdate}
+                />
+              );
+            })}
+            <div ref={messagesEndRef} />
+          </div>
         )}
-        <div ref={messagesEndRef} />
       </div>
 
-      {/* Message input */}
+      {/* Message Input */}
       <div className="border-t border-gray-700 p-4">
-        <MessageInput 
+        <MessageInput
           onSendMessage={handleSendMessage}
-          onTyping={(isTyping) => sendTyping && sendTyping(dmId, isTyping)}
-          placeholder={`Message ${dm?.other_user?.display_name || dm?.other_user?.email || 'user'}`}
+          disabled={sending || !isConnected}
+          placeholder={`Message ${otherUser?.display_name || otherUser?.email || 'user'}`}
         />
-      </div>
-    </div>
-  );
-}
-
-// DM-specific MessageItem component
-function DMMessageItem({ message, onReply, onReact }) {
-  const [showActions, setShowActions] = useState(false);
-  const [replying, setReplying] = useState(false);
-  const [replyContent, setReplyContent] = useState('');
-
-  const handleReplySubmit = () => {
-    if (replyContent.trim() && onReply) {
-      onReply(message.id, replyContent);
-      setReplyContent('');
-      setReplying(false);
-    }
-  };
-
-  const isCurrentUser = message.user?.id === localStorage.getItem('current_user_id');
-
-  return (
-    <div 
-      className={`rounded-lg p-4 transition-colors ${
-        isCurrentUser ? 'bg-blue-900 bg-opacity-30 ml-8' : 'bg-gray-800 mr-8'
-      } hover:bg-opacity-50`}
-      onMouseEnter={() => setShowActions(true)}
-      onMouseLeave={() => setShowActions(false)}
-    >
-      <div className="flex items-start space-x-3">
-        {!isCurrentUser && (
-          <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-            {message.user?.email?.charAt(0)?.toUpperCase() || 'U'}
+        
+        {!isConnected && (
+          <div className="text-center mt-2">
+            <p className="text-yellow-500 text-sm">
+              🔌 Connecting... Messages may be delayed
+            </p>
           </div>
         )}
-        <div className="flex-1">
-          {!isCurrentUser && (
-            <div className="flex items-center space-x-2 mb-1">
-              <span className="text-white font-medium">
-                {message.user?.email || 'Unknown User'}
-              </span>
-              <span className="text-gray-400 text-sm">
-                {new Date(message.timestamp || message.created_at).toLocaleTimeString()}
-              </span>
-            </div>
-          )}
-          
-          <p className={`whitespace-pre-wrap ${
-            isCurrentUser ? 'text-blue-100' : 'text-gray-200'
-          }`}>
-            {message.content}
-          </p>
+      </div>
 
-          {/* File attachment */}
-          {message.file && (
-            <div className="mt-2 p-2 bg-gray-700 bg-opacity-50 rounded">
-              <a 
-                href={message.file_url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:text-blue-300 flex items-center space-x-2"
-              >
-                <span>📎</span>
-                <span>{message.file_name}</span>
-                <span className="text-gray-400 text-sm">
-                  ({Math.round(message.file_size / 1024)} KB)
-                </span>
-              </a>
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-900 bg-opacity-50 border-t border-red-700 p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-red-400">⚠️</span>
+              <span className="text-red-200 text-sm">{error}</span>
             </div>
-          )}
-
-          {/* Replies */}
-          {message.replies && message.replies.length > 0 && (
-            <div className="mt-2 ml-4 border-l-2 border-gray-600 pl-4">
-              {message.replies.map((reply) => (
-                <div key={reply.id} className="py-2">
-                  <div className="flex items-center space-x-2 text-sm">
-                    <span className="text-blue-400">{reply.user?.email}</span>
-                    <span className="text-gray-400">
-                      {new Date(reply.timestamp || reply.created_at).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-300 text-sm">{reply.content}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Reply input */}
-          {replying && (
-            <div className="mt-2">
-              <textarea
-                value={replyContent}
-                onChange={(e) => setReplyContent(e.target.value)}
-                placeholder="Write a reply..."
-                className="w-full bg-gray-700 text-white rounded p-2 text-sm resize-none"
-                rows="2"
-              />
-              <div className="flex space-x-2 mt-1">
-                <button
-                  onClick={handleReplySubmit}
-                  className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm"
-                >
-                  Send Reply
-                </button>
-                <button
-                  onClick={() => setReplying(false)}
-                  className="px-3 py-1 bg-gray-600 hover:bg-gray-700 text-white rounded text-sm"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Message actions */}
-          {showActions && (
-            <div className="flex space-x-2 mt-2">
-              <button
-                onClick={() => setReplying(true)}
-                className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded"
-              >
-                Reply
-              </button>
-              <button
-                onClick={() => onReact && onReact(message.id, 'like')}
-                className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded"
-              >
-                👍
-              </button>
-              <button
-                onClick={() => onReact && onReact(message.id, 'heart')}
-                className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded"
-              >
-                ❤️
-              </button>
-            </div>
-          )}
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300"
+            >
+              ✕
+            </button>
+          </div>
         </div>
-        {isCurrentUser && (
-          <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-            {message.user?.email?.charAt(0)?.toUpperCase() || 'U'}
-          </div>
-        )}
-      </div>
+      )}
     </div>
-  );
-}
-
-// MessageInput component for DMs
-function MessageInput({ onSendMessage, onTyping, placeholder = "Type a message..." }) {
-  const [message, setMessage] = useState('');
-  const [file, setFile] = useState(null);
-  const fileInputRef = useRef();
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (message.trim() || file) {
-      onSendMessage(message, file);
-      setMessage('');
-      setFile(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      onTyping && onTyping(false);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      // Auto-send file when selected
-      onSendMessage('', selectedFile);
-      setFile(null);
-      e.target.value = '';
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="flex space-x-2">
-      <div className="flex-1 flex space-x-2">
-        <input
-          type="text"
-          value={message}
-          onChange={(e) => {
-            setMessage(e.target.value);
-            onTyping && onTyping(true);
-          }}
-          onBlur={() => onTyping && onTyping(false)}
-          placeholder={placeholder}
-          className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileSelect}
-          className="hidden"
-          id="dm-file-upload"
-        />
-        <label
-          htmlFor="dm-file-upload"
-          className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg cursor-pointer flex items-center"
-        >
-          📎
-        </label>
-        <button
-          type="submit"
-          disabled={!message.trim() && !file}
-          className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-medium"
-        >
-          Send
-        </button>
-      </div>
-    </form>
   );
 }
