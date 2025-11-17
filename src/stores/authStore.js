@@ -135,17 +135,25 @@ const useAuthStore = create(
       // COMPUTED PROPERTIES
       // =============================================================================
 
-      get isAuthenticated() {
-        return !!get().user;
-      },
+     // In your auth store, replace the isAuthenticated getter with this:
 
-      get hasOrganization() {
-        return !!get().organization;
-      },
-
-      get organizationSlug() {
-          return get().organization?.subdomain || null;
-      },
+get isAuthenticated() {
+  const currentUser = get().user;
+  const hasToken = !!localStorage.getItem('access_token');
+  const hasUserEmail = !!localStorage.getItem('user_email');
+  
+  // More reliable check: user exists OR we have token + email in localStorage
+  const shouldBeAuthenticated = !!(currentUser || (hasToken && hasUserEmail));
+  
+  console.log('🔐 isAuthenticated check:', {
+    currentUser: !!currentUser,
+    hasToken,
+    hasUserEmail,
+    shouldBeAuthenticated
+  });
+  
+  return shouldBeAuthenticated;
+},
 
       get isOrganizationAdmin() {
         const role = get().effectiveUserRole;

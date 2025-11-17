@@ -18,7 +18,7 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
     try {
       setLoading(true);
       setError('');
-      console.log('🔄 Loading sidebar data...');
+      console.log('🔄 Loading sidebar data for workspace:', workspaceId);
 
       // Load channels and DMs in parallel with proper error handling
       const [channelsResult, dmResult] = await Promise.allSettled([
@@ -29,41 +29,62 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
       console.log('📊 Channels result:', channelsResult);
       console.log('📊 DMs result:', dmResult);
 
+      let allChannels = [];
+      let allDMs = [];
+
       // Handle channels response - ensure it's always an array
       if (channelsResult.status === 'fulfilled') {
         const channelsData = channelsResult.value;
         if (Array.isArray(channelsData)) {
-          setChannels(channelsData);
+          allChannels = channelsData;
         } else if (channelsData && Array.isArray(channelsData.results)) {
-          setChannels(channelsData.results);
+          allChannels = channelsData.results;
         } else if (channelsData && Array.isArray(channelsData.channels)) {
-          setChannels(channelsData.channels);
+          allChannels = channelsData.channels;
+        } else if (channelsData && Array.isArray(channelsData.data)) {
+          allChannels = channelsData.data;
         } else {
           console.warn('⚠️ Unexpected channels format, defaulting to empty array:', channelsData);
-          setChannels([]);
+          allChannels = [];
         }
       } else {
         console.error('❌ Failed to load channels:', channelsResult.reason);
-        setChannels([]);
+        allChannels = [];
       }
+
+      // Filter channels for current workspace (CRITICAL FIX)
+      const workspaceChannels = allChannels.filter(channel => {
+        const channelWorkspaceId = channel.workspace?.id || channel.workspace || channel.workspace_id;
+        const matches = channelWorkspaceId == workspaceId;
+        console.log(`🔍 Sidebar - Channel ${channel.id}: workspaceId=${channelWorkspaceId}, matches=${matches}`);
+        return matches;
+      });
+
+      console.log('🎯 Sidebar - Filtered channels:', workspaceChannels);
+
+      setChannels(workspaceChannels);
 
       // Handle DMs response - ensure it's always an array
       if (dmResult.status === 'fulfilled') {
         const dmData = dmResult.value;
         if (Array.isArray(dmData)) {
-          setDirectMessages(dmData);
+          allDMs = dmData;
         } else if (dmData && Array.isArray(dmData.results)) {
-          setDirectMessages(dmData.results);
+          allDMs = dmData.results;
         } else if (dmData && Array.isArray(dmData.direct_messages)) {
-          setDirectMessages(dmData.direct_messages);
+          allDMs = dmData.direct_messages;
+        } else if (dmData && Array.isArray(dmData.data)) {
+          allDMs = dmData.data;
         } else {
           console.warn('⚠️ Unexpected DMs format, defaulting to empty array:', dmData);
-          setDirectMessages([]);
+          allDMs = [];
         }
       } else {
         console.error('❌ Failed to load DMs:', dmResult.reason);
-        setDirectMessages([]);
+        allDMs = [];
       }
+
+      setDirectMessages(allDMs);
 
     } catch (error) {
       console.error('❌ Failed to load sidebar data:', error);
@@ -102,7 +123,7 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
   }
 
   return (
-    <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
+    <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col h-full">
       {/* Workspace Header */}
       <div className="p-4 border-b border-gray-700">
         <h1 className="text-white font-semibold text-lg">Workspace</h1>
@@ -124,9 +145,19 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
         )}
 
         {/* Debug Info */}
-        <div className="mt-2 text-xs text-gray-500">
-          <div>Channels: {channels.length}</div>
-          <div>DMs: {directMessages.length}</div>
+        <div className="mt-2 text-xs text-gray-500 space-y-1">
+          <div className="flex justify-between">
+            <span>Channels:</span>
+            <span className={channels.length > 0 ? 'text-green-400' : 'text-gray-400'}>
+              {channels.length} found
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span>DMs:</span>
+            <span className={directMessages.length > 0 ? 'text-green-400' : 'text-gray-400'}>
+              {directMessages.length} found
+            </span>
+          </div>
         </div>
       </div>
 
@@ -135,7 +166,9 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
         <div className="p-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-gray-400 text-sm font-semibold uppercase tracking-wide">Channels</h2>
-            <span className="text-gray-500 text-xs">{channels.length}</span>
+            <span className="text-gray-500 text-xs bg-gray-700 px-2 py-1 rounded-full">
+              {channels.length}
+            </span>
           </div>
           
           {/* Safe channels rendering */}
@@ -145,14 +178,17 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
                 <button
                   key={channel.id}
                   onClick={() => onChannelSelect && onChannelSelect(channel)}
-                  className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white"
+                  className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white flex items-center"
                 >
-                  <span className="text-gray-500 mr-1">#</span>
-                  {channel.name || 'Unnamed Channel'}
+                  <span className="text-gray-500 mr-2">#</span>
+                  <span className="truncate">{channel.name || `Channel ${channel.id}`}</span>
                 </button>
               ))
             ) : (
-              <p className="text-gray-500 text-sm px-3 py-2">No channels available</p>
+              <div className="text-center py-4">
+                <p className="text-gray-500 text-sm">No channels in this workspace</p>
+                <p className="text-gray-600 text-xs mt-1">Create a channel to get started</p>
+              </div>
             )}
           </div>
         </div>
@@ -161,7 +197,9 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
         <div className="p-4 border-t border-gray-700">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-gray-400 text-sm font-semibold uppercase tracking-wide">Direct Messages</h2>
-            <span className="text-gray-500 text-xs">{directMessages.length}</span>
+            <span className="text-gray-500 text-xs bg-gray-700 px-2 py-1 rounded-full">
+              {directMessages.length}
+            </span>
           </div>
           
           {/* Safe DMs rendering */}
@@ -173,12 +211,17 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
                   onClick={() => onDmSelect && onDmSelect(dm)}
                   className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors text-gray-300 hover:bg-gray-700 hover:text-white flex items-center space-x-2"
                 >
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span>{dm.other_user?.display_name || dm.other_user?.email || 'Unknown User'}</span>
+                  <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                  <span className="truncate">
+                    {dm.other_user?.display_name || dm.other_user?.email || dm.user?.display_name || dm.user?.email || 'Unknown User'}
+                  </span>
                 </button>
               ))
             ) : (
-              <p className="text-gray-500 text-sm px-3 py-2">No direct messages</p>
+              <div className="text-center py-4">
+                <p className="text-gray-500 text-sm">No direct messages</p>
+                <p className="text-gray-600 text-xs mt-1">Start a conversation</p>
+              </div>
             )}
           </div>
         </div>

@@ -4,6 +4,13 @@ import useAuthStore from '../../stores/authStore';
 
 const WebSocketContext = createContext();
 
+// Global connection tracking to prevent duplicates across component instances
+const globalConnectionState = {
+  activeConnections: new Set(),
+  pendingConnections: new Set(),
+  connectionAttempts: {}
+};
+
 export function useWebSocket() {
   const context = useContext(WebSocketContext);
   if (!context) {
@@ -25,38 +32,50 @@ export function WebSocketProvider({ children }) {
   const reconnectTimeoutsRef = useRef({});
   const authCheckTimeoutRef = useRef(null);
 
-  // FIXED: Delayed authentication check to wait for Zustand store
+  // FIXED: Single authentication check with proper cleanup
   useEffect(() => {
+    let mounted = true;
+
+    const checkAuthAndSetup = async () => {
+      if (!mounted) return;
+
+      // Wait for Zustand store to stabilize
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const token = localStorage.getItem('access_token');
+      const userEmail = localStorage.getItem('user_email');
+      
+      console.log('🔐 WebSocket Auth Check:', {
+        isAuthenticated,
+        hasUser: !!user,
+        userFromStore: user?.email,
+        userFromStorage: userEmail,
+        hasToken: !!token
+      });
+
+      if (token && (user || userEmail)) {
+        console.log('✅ WebSocket: User authenticated');
+        if (mounted) {
+          setConnectionStatus('ready');
+        }
+      } else {
+        console.log('🚫 WebSocket: User not authenticated');
+        if (mounted) {
+          disconnectAll();
+          setConnectionStatus('disconnected');
+        }
+      }
+    };
+
     // Clear any existing timeout
     if (authCheckTimeoutRef.current) {
       clearTimeout(authCheckTimeoutRef.current);
     }
 
-    // Wait a bit for Zustand store to populate
-    authCheckTimeoutRef.current = setTimeout(() => {
-      const token = localStorage.getItem('access_token');
-      const userEmail = localStorage.getItem('user_email');
-      
-      console.log('🔐 WebSocket Auth Check (Delayed):', {
-        isAuthenticated,
-        hasUser: !!user,
-        userFromStore: user?.email,
-        userFromStorage: userEmail,
-        hasToken: !!token,
-        shouldConnect: !!(token && (user || userEmail))
-      });
-
-      if (token && (user || userEmail)) {
-        console.log('✅ WebSocket: User authenticated, ready for connections');
-        setConnectionStatus('ready');
-      } else {
-        console.log('🚫 WebSocket: User not authenticated, disconnecting');
-        disconnectAll();
-        setConnectionStatus('disconnected');
-      }
-    }, 500); // Wait 500ms for store to populate
+    authCheckTimeoutRef.current = setTimeout(checkAuthAndSetup, 100);
 
     return () => {
+      mounted = false;
       if (authCheckTimeoutRef.current) {
         clearTimeout(authCheckTimeoutRef.current);
       }
@@ -64,7 +83,6 @@ export function WebSocketProvider({ children }) {
   }, [user, isAuthenticated]);
 
   const getAuthToken = () => {
-    // Check localStorage directly for token
     const token = localStorage.getItem('access_token');
     
     if (!token) {
@@ -72,17 +90,13 @@ export function WebSocketProvider({ children }) {
       return null;
     }
     
-    console.log('🔐 WebSocket Token available:', token.substring(0, 20) + '...');
+    console.log('🔐 WebSocket Token available');
     return token;
   };
 
   const getCurrentUser = () => {
-    // Try to get user from store first, then fallback to localStorage
-    if (user) {
-      return user;
-    }
+    if (user) return user;
     
-    // Fallback to localStorage data
     const userEmail = localStorage.getItem('user_email');
     if (userEmail) {
       return {
@@ -106,12 +120,41 @@ export function WebSocketProvider({ children }) {
     return apiUrl.replace(/^http/, 'ws');
   };
 
+  // FIXED: Enhanced connection debouncing
+  const canConnect = (key) => {
+    const now = Date.now();
+    const lastAttempt = globalConnectionState.connectionAttempts[key];
+    
+    // If there's a recent attempt, debounce (2 second cooldown)
+    if (lastAttempt && (now - lastAttempt) < 2000) {
+      console.log(`⏳ Debouncing connection to ${key} - too soon`);
+      return false;
+    }
+    
+    // If connection is already active or pending, don't create another
+    if (globalConnectionState.activeConnections.has(key) || 
+        globalConnectionState.pendingConnections.has(key)) {
+      console.log(`⏳ Connection to ${key} already active or pending`);
+      return false;
+    }
+    
+    globalConnectionState.connectionAttempts[key] = now;
+    globalConnectionState.pendingConnections.add(key);
+    return true;
+  };
+
   const cleanupSocket = (key) => {
+    // Clear reconnect timeout
     if (reconnectTimeoutsRef.current[key]) {
       clearTimeout(reconnectTimeoutsRef.current[key]);
       delete reconnectTimeoutsRef.current[key];
     }
 
+    // Remove from connection tracking
+    globalConnectionState.activeConnections.delete(key);
+    globalConnectionState.pendingConnections.delete(key);
+
+    // Remove socket reference
     const newSockets = { ...socketsRef.current };
     if (newSockets[key]) {
       delete newSockets[key];
@@ -127,17 +170,25 @@ export function WebSocketProvider({ children }) {
       return;
     }
 
-    console.log(`🔄 Scheduling reconnect for ${key} in 3 seconds...`);
+    console.log(`🔄 Scheduling reconnect for ${key} in 5 seconds...`);
     reconnectTimeoutsRef.current[key] = setTimeout(() => {
       console.log(`🔄 Attempting reconnect for ${key}...`);
+      delete reconnectTimeoutsRef.current[key];
       connectWebSocket(url, key);
-    }, 3000);
+    }, 5000); // Increased to 5 seconds
   };
 
+  // FIXED: Enhanced WebSocket connection with better resource management
   const connectWebSocket = (url, key) => {
-    // FIXED: Use the enhanced authentication check
+    // Enhanced authentication check
     if (!isUserAuthenticated()) {
       console.error('❌ Cannot connect WebSocket - user not authenticated');
+      globalConnectionState.pendingConnections.delete(key);
+      return null;
+    }
+
+    // Connection debouncing check
+    if (!canConnect(key)) {
       return null;
     }
 
@@ -147,7 +198,11 @@ export function WebSocketProvider({ children }) {
     // Close existing connection if any
     if (socketsRef.current[key]) {
       console.log(`🔄 Replacing existing WebSocket connection: ${key}`);
-      socketsRef.current[key].close(1000, 'Reconnecting');
+      try {
+        socketsRef.current[key].close(1000, 'Reconnecting');
+      } catch (error) {
+        console.warn('Error closing existing socket:', error);
+      }
     }
 
     try {
@@ -159,6 +214,11 @@ export function WebSocketProvider({ children }) {
       
       ws.onopen = () => {
         console.log(`✅ WebSocket connected successfully: ${key}`);
+        
+        // Update connection tracking
+        globalConnectionState.pendingConnections.delete(key);
+        globalConnectionState.activeConnections.add(key);
+        
         setIsConnected(prev => ({ ...prev, [key]: true }));
         setConnectionStatus('connected');
         
@@ -168,21 +228,25 @@ export function WebSocketProvider({ children }) {
           delete reconnectTimeoutsRef.current[key];
         }
 
-        // Send authentication message
-        const authMessage = {
-          type: 'authenticate',
-          token: token,
-          user_id: currentUser?.id,
-          email: currentUser?.email
-        };
-        console.log('🔐 Sending WebSocket authentication...', authMessage);
-        ws.send(JSON.stringify(authMessage));
+        // Send authentication message after a brief delay
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            const authMessage = {
+              type: 'authenticate',
+              token: token,
+              user_id: currentUser?.id,
+              email: currentUser?.email
+            };
+            console.log('🔐 Sending WebSocket authentication...');
+            ws.send(JSON.stringify(authMessage));
+          }
+        }, 100);
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('📨 WebSocket message received:', data);
+          console.log('📨 WebSocket message received:', data.type);
           
           switch (data.type) {
             case 'new_message':
@@ -220,22 +284,22 @@ export function WebSocketProvider({ children }) {
               break;
 
             case 'user_joined':
-              console.log(`👤 User joined: ${data.user_id} in room ${data.room_id}`);
+              console.log(`👤 User joined: ${data.user_id}`);
               break;
 
             case 'user_left':
-              console.log(`👤 User left: ${data.user_id} from room ${data.room_id}`);
+              console.log(`👤 User left: ${data.user_id}`);
               break;
 
             case 'welcome':
-              console.log('👋 WebSocket welcome message:', data.message);
+              console.log('👋 WebSocket welcome message');
               break;
 
             default:
-              console.log('📨 Unknown message type:', data.type, data);
+              console.log('📨 Unknown message type:', data.type);
           }
         } catch (error) {
-          console.error('❌ Error parsing WebSocket message:', error, event.data);
+          console.error('❌ Error parsing WebSocket message:', error);
         }
       };
 
@@ -246,10 +310,15 @@ export function WebSocketProvider({ children }) {
           wasClean: event.wasClean
         });
         
+        // Update connection tracking
+        globalConnectionState.activeConnections.delete(key);
+        globalConnectionState.pendingConnections.delete(key);
+        
         setIsConnected(prev => ({ ...prev, [key]: false }));
         setConnectionStatus('disconnected');
         
-        if (event.code !== 1000 && event.code !== 1001) {
+        // Only attempt reconnect for unexpected disconnects
+        if (event.code !== 1000 && event.code !== 1001 && event.code !== 1008) {
           console.log(`🔄 Unexpected disconnect, will attempt reconnect for: ${key}`);
           scheduleReconnect(key, url);
         }
@@ -259,6 +328,10 @@ export function WebSocketProvider({ children }) {
 
       ws.onerror = (error) => {
         console.error(`❌ WebSocket error (${key}):`, error);
+        
+        // Update connection tracking
+        globalConnectionState.pendingConnections.delete(key);
+        
         setIsConnected(prev => ({ ...prev, [key]: false }));
         setConnectionStatus('error');
       };
@@ -271,6 +344,10 @@ export function WebSocketProvider({ children }) {
 
     } catch (error) {
       console.error('❌ Failed to create WebSocket connection:', error);
+      
+      // Update connection tracking
+      globalConnectionState.pendingConnections.delete(key);
+      
       scheduleReconnect(key, url);
       return null;
     }
@@ -295,39 +372,57 @@ export function WebSocketProvider({ children }) {
     }));
   };
 
-  // Connect to workspace chat
+  // =============================================================================
+  // WEBSOCKET CONNECTION METHODS
+  // =============================================================================
+
+  // Connect to workspace chat - MATCH: ws/workspace/(?P<workspace_id>[0-9a-f-]+)/$
   const connectToWorkspace = (workspaceId) => {
     const key = `workspace_${workspaceId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/chat/${workspaceId}/`;
-    console.log(`🔌 Connecting to workspace WebSocket: ${url}`);
+    const url = `${baseUrl}/ws/workspace/${workspaceId}/`;
+    
+    console.log(`🔌 Requesting workspace WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
-  // Connect to specific channel
+  // Connect to specific channel - MATCH: ws/channel/(?P<channel_id>[0-9a-f-]+)/$
   const connectToChannel = (channelId) => {
     const key = `channel_${channelId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/chat/channel/${channelId}/`;
-    console.log(`🔌 Connecting to channel WebSocket: ${url}`);
+    const url = `${baseUrl}/ws/channel/${channelId}/`;
+    
+    console.log(`🔌 Requesting channel WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
-  // Connect to DM
+  // Connect to DM - MATCH: ws/dm/(?P<dm_id>[0-9a-f-]+)/$
   const connectToDM = (dmId) => {
     const key = `dm_${dmId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/chat/dm/${dmId}/`;
-    console.log(`🔌 Connecting to DM WebSocket: ${url}`);
+    const url = `${baseUrl}/ws/dm/${dmId}/`;
+    
+    console.log(`🔌 Requesting DM WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
-  // Connect to notifications
+  // Connect to notifications - MATCH: ws/notifications/$
   const connectToNotifications = () => {
     const key = 'notifications';
     const baseUrl = getWebSocketBaseURL();
     const url = `${baseUrl}/ws/notifications/`;
-    console.log(`🔌 Connecting to notifications WebSocket: ${url}`);
+    
+    console.log(`🔌 Requesting notifications WebSocket: ${url}`);
+    return connectWebSocket(url, key);
+  };
+
+  // Connect to legacy chat rooms - MATCH: ws/chat/(?P<room_name>\w+)/$
+  const connectToChatRoom = (roomName) => {
+    const key = `chat_${roomName}`;
+    const baseUrl = getWebSocketBaseURL();
+    const url = `${baseUrl}/ws/chat/${roomName}/`;
+    
+    console.log(`🔌 Requesting chat room WebSocket: ${url}`);
     return connectWebSocket(url, key);
   };
 
@@ -340,6 +435,10 @@ export function WebSocketProvider({ children }) {
         return connectToChannel(roomId);
       case 'dm':
         return connectToDM(roomId);
+      case 'notifications':
+        return connectToNotifications();
+      case 'chat':
+        return connectToChatRoom(roomId);
       default:
         console.error(`❌ Unknown room type: ${roomType}`);
         return null;
@@ -424,9 +523,15 @@ export function WebSocketProvider({ children }) {
 
   const disconnectAll = () => {
     console.log('🔌 Disconnecting all WebSocket connections');
+    
+    // Close all active WebSocket connections
     Object.keys(socketsRef.current).forEach(key => {
       if (socketsRef.current[key]) {
-        socketsRef.current[key].close(1000, 'Manual disconnect');
+        try {
+          socketsRef.current[key].close(1000, 'Manual disconnect');
+        } catch (error) {
+          console.warn(`Error closing socket ${key}:`, error);
+        }
       }
     });
     
@@ -435,6 +540,11 @@ export function WebSocketProvider({ children }) {
       clearTimeout(timeout);
     });
     reconnectTimeoutsRef.current = {};
+    
+    // Reset all state
+    globalConnectionState.activeConnections.clear();
+    globalConnectionState.pendingConnections.clear();
+    globalConnectionState.connectionAttempts = {};
     
     socketsRef.current = {};
     setSockets({});
@@ -471,6 +581,7 @@ export function WebSocketProvider({ children }) {
     connectToChannel,
     connectToDM,
     connectToNotifications,
+    connectToChatRoom,
     isRoomConnected,
     
     // Messaging methods
