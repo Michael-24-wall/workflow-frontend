@@ -136,6 +136,18 @@ export function WebSocketProvider({ children }) {
     return apiUrl.replace(/^http/, 'ws');
   };
 
+  // 🆕 ADD: Helper to extract clean ID from objects or values
+  const getCleanId = (idValue) => {
+    if (!idValue) return null;
+    
+    if (typeof idValue === 'object') {
+      console.warn('⚠️ ID is an object, extracting ID:', idValue);
+      return idValue.id || idValue.workspace_id || idValue.channel_id || idValue.room_id || idValue.dm_id;
+    }
+    
+    return idValue;
+  };
+
   // FIXED: Enhanced connection debouncing
   const canConnect = (key) => {
     const now = Date.now();
@@ -699,9 +711,15 @@ export function WebSocketProvider({ children }) {
 
   // Connect to workspace chat - MATCH: ws/workspace/(?P<workspace_id>[0-9a-f-]+)/$
   const connectToWorkspace = (workspaceId) => {
-    const key = `workspace_${workspaceId}`;
+    const cleanWorkspaceId = getCleanId(workspaceId);
+    if (!cleanWorkspaceId) {
+      console.error('❌ Invalid workspace ID:', workspaceId);
+      return null;
+    }
+    
+    const key = `workspace_${cleanWorkspaceId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/workspace/${workspaceId}/`;
+    const url = `${baseUrl}/ws/workspace/${cleanWorkspaceId}/`;
     
     console.log(`🔌 Requesting workspace WebSocket: ${url}`);
     return connectWebSocket(url, key);
@@ -709,9 +727,15 @@ export function WebSocketProvider({ children }) {
 
   // Connect to specific channel - MATCH: ws/channel/(?P<channel_id>[0-9a-f-]+)/$
   const connectToChannel = (channelId) => {
-    const key = `channel_${channelId}`;
+    const cleanChannelId = getCleanId(channelId);
+    if (!cleanChannelId) {
+      console.error('❌ Invalid channel ID:', channelId);
+      return null;
+    }
+    
+    const key = `channel_${cleanChannelId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/channel/${channelId}/`;
+    const url = `${baseUrl}/ws/channel/${cleanChannelId}/`;
     
     console.log(`🔌 Requesting channel WebSocket: ${url}`);
     return connectWebSocket(url, key);
@@ -719,9 +743,15 @@ export function WebSocketProvider({ children }) {
 
   // Connect to DM - MATCH: ws/dm/(?P<dm_id>[0-9a-f-]+)/$
   const connectToDM = (dmId) => {
-    const key = `dm_${dmId}`;
+    const cleanDmId = getCleanId(dmId);
+    if (!cleanDmId) {
+      console.error('❌ Invalid DM ID:', dmId);
+      return null;
+    }
+    
+    const key = `dm_${cleanDmId}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/dm/${dmId}/`;
+    const url = `${baseUrl}/ws/dm/${cleanDmId}/`;
     
     console.log(`🔌 Requesting DM WebSocket: ${url}`);
     return connectWebSocket(url, key);
@@ -739,9 +769,15 @@ export function WebSocketProvider({ children }) {
 
   // Connect to legacy chat rooms - MATCH: ws/chat/(?P<room_name>\w+)/$
   const connectToChatRoom = (roomName) => {
-    const key = `chat_${roomName}`;
+    const cleanRoomName = getCleanId(roomName);
+    if (!cleanRoomName) {
+      console.error('❌ Invalid room name:', roomName);
+      return null;
+    }
+    
+    const key = `chat_${cleanRoomName}`;
     const baseUrl = getWebSocketBaseURL();
-    const url = `${baseUrl}/ws/chat/${roomName}/`;
+    const url = `${baseUrl}/ws/chat/${cleanRoomName}/`;
     
     console.log(`🔌 Requesting chat room WebSocket: ${url}`);
     return connectWebSocket(url, key);
@@ -749,33 +785,56 @@ export function WebSocketProvider({ children }) {
 
   // Generic connect function
   const connect = (roomId, roomType = 'workspace') => {
+    const cleanRoomId = getCleanId(roomId);
+    if (!cleanRoomId) {
+      console.error('❌ Invalid room ID:', roomId);
+      return null;
+    }
+    
     switch (roomType) {
       case 'workspace':
-        return connectToWorkspace(roomId);
+        return connectToWorkspace(cleanRoomId);
       case 'channel':
-        return connectToChannel(roomId);
+        return connectToChannel(cleanRoomId);
       case 'dm':
-        return connectToDM(roomId);
+        return connectToDM(cleanRoomId);
       case 'notifications':
         return connectToNotifications();
       case 'chat':
-        return connectToChatRoom(roomId);
+        return connectToChatRoom(cleanRoomId);
       default:
         console.error(`❌ Unknown room type: ${roomType}`);
         return null;
     }
   };
 
-  // Send message to specific room
+  // 🔧 FIXED: Send message to specific room with proper ID handling
   const sendMessage = (roomId, content, roomType = 'workspace') => {
-    const key = `${roomType}_${roomId}`;
+    // 🆕 FIX: Use the helper to get clean ID
+    const cleanRoomId = getCleanId(roomId);
+    
+    if (!cleanRoomId) {
+      console.error('❌ Invalid room ID for sending message:', roomId);
+      return false;
+    }
+    
+    const key = `${roomType}_${cleanRoomId}`;
     const socket = socketsRef.current[key];
+    
+    console.log('🔍 sendMessage debug:', {
+      originalRoomId: roomId,
+      cleanRoomId: cleanRoomId,
+      roomType: roomType,
+      key: key,
+      socketExists: !!socket,
+      isConnected: isConnected[key]
+    });
     
     if (socket && isConnected[key]) {
       const currentUser = getCurrentUser();
       const message = {
         type: 'chat_message',
-        room_id: roomId,
+        room_id: cleanRoomId,
         room_type: roomType,
         content: content,
         timestamp: new Date().toISOString(),
@@ -787,25 +846,26 @@ export function WebSocketProvider({ children }) {
       return true;
     } else {
       console.error(`❌ Cannot send message - WebSocket not connected: ${key}`);
-      console.log('🔍 Socket state:', {
-        socketExists: !!socket,
-        isConnected: isConnected[key],
-        allConnections: Object.keys(socketsRef.current)
-      });
       return false;
     }
   };
 
   // Send reaction to specific message
   const sendReaction = (roomId, messageId, reactionType, roomType = 'workspace') => {
-    const key = `${roomType}_${roomId}`;
+    const cleanRoomId = getCleanId(roomId);
+    if (!cleanRoomId) {
+      console.error('❌ Invalid room ID for reaction:', roomId);
+      return false;
+    }
+    
+    const key = `${roomType}_${cleanRoomId}`;
     const socket = socketsRef.current[key];
     
     if (socket && isConnected[key]) {
       const currentUser = getCurrentUser();
       const reactionMessage = {
         type: 'add_reaction',
-        room_id: roomId,
+        room_id: cleanRoomId,
         room_type: roomType,
         message_id: messageId,
         reaction_type: reactionType,
@@ -824,14 +884,20 @@ export function WebSocketProvider({ children }) {
 
   // Remove reaction from specific message
   const removeReaction = (roomId, messageId, reactionType, roomType = 'workspace') => {
-    const key = `${roomType}_${roomId}`;
+    const cleanRoomId = getCleanId(roomId);
+    if (!cleanRoomId) {
+      console.error('❌ Invalid room ID for reaction removal:', roomId);
+      return false;
+    }
+    
+    const key = `${roomType}_${cleanRoomId}`;
     const socket = socketsRef.current[key];
     
     if (socket && isConnected[key]) {
       const currentUser = getCurrentUser();
       const reactionMessage = {
         type: 'remove_reaction',
-        room_id: roomId,
+        room_id: cleanRoomId,
         room_type: roomType,
         message_id: messageId,
         reaction_type: reactionType,
@@ -850,14 +916,20 @@ export function WebSocketProvider({ children }) {
 
   // Send typing indicator
   const sendTyping = (roomId, isTyping, roomType = 'workspace') => {
-    const key = `${roomType}_${roomId}`;
+    const cleanRoomId = getCleanId(roomId);
+    if (!cleanRoomId) {
+      console.error('❌ Invalid room ID for typing:', roomId);
+      return;
+    }
+    
+    const key = `${roomType}_${cleanRoomId}`;
     const socket = socketsRef.current[key];
     
     if (socket && isConnected[key]) {
       const currentUser = getCurrentUser();
       const typingMessage = {
         type: 'typing',
-        room_id: roomId,
+        room_id: cleanRoomId,
         room_type: roomType,
         is_typing: isTyping,
         user_id: currentUser?.id,
@@ -884,7 +956,10 @@ export function WebSocketProvider({ children }) {
 
   // Check if connected to a specific room
   const isRoomConnected = (roomId, roomType = 'workspace') => {
-    const key = `${roomType}_${roomId}`;
+    const cleanRoomId = getCleanId(roomId);
+    if (!cleanRoomId) return false;
+    
+    const key = `${roomType}_${cleanRoomId}`;
     return !!isConnected[key];
   };
 

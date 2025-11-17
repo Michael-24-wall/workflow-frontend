@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useWebSocket } from "../../../contexts/chat/WebSocketContext";
-import { messageService } from "../../../services/chat/api";
+import { messageService, channelService } from "../../../services/chat/api";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 
@@ -10,244 +10,275 @@ export default function ChannelChat() {
   const { sendMessage } = useWebSocket();
   const [channel, setChannel] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [localMessages, setLocalMessages] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
-  
-  const allMessages = localMessages;
-
-  const getFixedFileUrl = (fileUrl) => {
-    if (!fileUrl) return null;
-    
-    if (fileUrl.startsWith('http')) {
-      return fileUrl;
-    }
-    
-    if (fileUrl.startsWith('/media/')) {
-      return `http://localhost:9000${fileUrl}`;
-    }
-    
-    if (fileUrl && !fileUrl.includes('/')) {
-      return `http://localhost:9000/media/${fileUrl}`;
-    }
-    
-    return fileUrl;
-  };
+  const [replyingTo, setReplyingTo] = useState(null);
 
   useEffect(() => {
     loadChannelData();
-    loadInitialMessages();
+    loadMessages();
   }, [channelId]);
 
   const loadChannelData = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
+      const channelsResponse = await channelService.getChannels();
+      console.log('📋 Channels response:', channelsResponse);
+      
+      let currentChannel;
+      
+      if (channelsResponse.results && Array.isArray(channelsResponse.results)) {
+        currentChannel = channelsResponse.results.find(ch => ch.id === parseInt(channelId));
+      } else if (Array.isArray(channelsResponse)) {
+        currentChannel = channelsResponse.find(ch => ch.id === parseInt(channelId));
+      }
+      
+      if (currentChannel) {
+        console.log('✅ Found channel:', currentChannel);
+        setChannel(currentChannel);
+      } else {
+        console.log('⚠️ Channel not found, using fallback');
+        setChannel({ 
+          id: channelId, 
+          name: `Channel ${channelId}`,
+          topic: "General discussions"
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load channel:", error);
+      setError("Failed to load channel data");
       setChannel({ 
         id: channelId, 
         name: `Channel ${channelId}`,
         topic: "Team collaboration space"
       });
-      setLoading(false);
-    } catch (error) {
-      setChannel({ id: channelId, name: `Channel ${channelId}` });
+    } finally {
       setLoading(false);
     }
   };
 
-  const loadInitialMessages = async () => {
-    const storageKey = `chat-messages-${channelId}`;
-    const savedMessages = localStorage.getItem(storageKey);
-    
-    if (savedMessages) {
-      try {
-        const messages = JSON.parse(savedMessages);
-        
-        const fixedMessages = messages.map(msg => {
-          if (msg.message_type === 'file' && msg.file_url) {
-            return {
-              ...msg,
-              file_url: getFixedFileUrl(msg.file_url)
-            };
-          }
-          return msg;
-        });
-        
-        setLocalMessages(fixedMessages);
-      } catch (error) {
-        setLocalMessages([]);
-      }
-    } else {
-      setLocalMessages([]);
-    }
-  };
-
-  const handleReactToMessage = async (messageId, reactionType) => {
+  const loadMessages = async () => {
     try {
-      const result = await messageService.reactToMessage(messageId, reactionType);
+      setError(null);
+      console.log('📥 Loading messages for channel:', channelId);
       
-      setLocalMessages(prev => prev.map(msg => {
-        if (msg.id === messageId) {
-          const existingReactions = msg.reactions || [];
-          const hasExistingReaction = existingReactions.find(r => 
-            r.user?.id === result.reaction?.user?.id && 
-            r.reaction_type === reactionType
-          );
-          
-          if (!hasExistingReaction) {
-            return {
-              ...msg,
-              reactions: [...existingReactions, result.reaction]
-            };
-          }
-        }
-        return msg;
-      }));
+      let response;
+      
+      if (channelService.getChannelMessages) {
+        response = await channelService.getChannelMessages(channelId);
+      } else if (channelService.getMessages) {
+        response = await channelService.getMessages(channelId);
+      } else if (messageService.getMessages) {
+        response = await messageService.getMessages(channelId);
+      } else {
+        response = await fetch(`http://localhost:9000/api/chat/channels/${channelId}/messages/`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Content-Type': 'application/json',
+          },
+        }).then(res => res.json());
+      }
+      
+      console.log('📨 Messages response:', response);
+      
+      let messagesData = [];
+      
+      if (Array.isArray(response)) {
+        messagesData = response;
+      } else if (response && response.results) {
+        messagesData = response.results;
+      } else if (response && response.data) {
+        messagesData = response.data;
+      }
+      
+      console.log(`✅ Loaded ${messagesData.length} messages`);
+      setMessages(messagesData);
       
     } catch (error) {
-      console.error('Failed to add reaction:', error);
+      console.error("Failed to load messages:", error);
+      setError("Failed to load messages");
+      setMessages([]);
+    }
+  };
+
+  const handleSendMessage = async (content, file = null) => {
+    if ((!content || !content.trim()) && !file) return;
+
+    setSending(true);
+    setError(null);
+    
+    try {
+      console.log('📤 Sending message or file:', { content, hasFile: !!file, channelId });
+
+      let result;
+
+      if (file) {
+        console.log('📎 Uploading file:', file.name, file.type, file.size);
+        result = await messageService.uploadFile(file, channelId, content || '');
+        console.log('✅ File upload response:', result);
+      } else {
+        console.log('💬 Sending text message');
+        result = await messageService.sendChannelMessage(channelId, content);
+        console.log('✅ Text message response:', result);
+      }
+
+      if (result && result.id) {
+        setMessages(prev => [...prev, result]);
+      } else {
+        await loadMessages();
+      }
+
+    } catch (error) {
+      console.error("❌ Failed to send message/file:", error);
+      setError(`Failed to send: ${error.message}`);
+    } finally {
+      setSending(false);
     }
   };
 
   const handleReplyToMessage = async (messageId, replyContent) => {
     try {
+      setError(null);
+      console.log('↪️ Replying to message:', { messageId, replyContent });
+      console.log('🔍 DEBUG - messageId type:', typeof messageId, 'value:', messageId);
+      
       const result = await messageService.replyToMessage(messageId, replyContent);
       
-      if (result) {
-        setLocalMessages(prev => [...prev, {
-          ...result,
-          is_own_message: true,
-          replied_to: localMessages.find(m => m.id === messageId)
-        }]);
+      console.log('✅ Reply sent successfully:', result);
+      
+      setReplyingTo(null);
+      
+      if (result && result.id) {
+        setMessages(prev => [...prev, result]);
+      } else {
+        await loadMessages();
       }
       
     } catch (error) {
-      console.error('Failed to send reply:', error);
+      console.error("❌ Failed to send reply:", error);
+      setError(`Failed to send reply: ${error.message}`);
     }
   };
 
-  const handlePinMessage = async (messageId) => {
+  const handleDeleteMessage = async (messageId) => {
     try {
-      await messageService.pinMessage(messageId);
+      setError(null);
+      console.log('🗑️ Deleting message:', messageId);
       
-      setLocalMessages(prev => prev.map(msg => 
+      await messageService.deleteMessage(messageId);
+      
+      console.log('✅ Message deleted successfully');
+      
+      setMessages(prev => prev.filter(msg => msg.id !== messageId));
+      
+    } catch (error) {
+      console.error("❌ Failed to delete message:", error);
+      setError("Failed to delete message");
+      await loadMessages();
+    }
+  };
+
+  const handleReactToMessage = async (messageId, reactionType) => {
+    try {
+      console.log('💖 Reacting to message:', { messageId, reactionType });
+      
+      const result = await messageService.reactToMessage(messageId, reactionType);
+      
+      console.log('✅ Reaction added successfully:', result);
+      
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const updatedReactions = result.reactions || msg.reactions || [];
+          return {
+            ...msg,
+            reactions: updatedReactions
+          };
+        }
+        return msg;
+      }));
+      
+    } catch (error) {
+      console.error("❌ Failed to add reaction:", error);
+    }
+  };
+
+  const handleRemoveReaction = async (messageId, reactionType) => {
+    try {
+      console.log('🗑️ Removing reaction:', { messageId, reactionType });
+      
+      await messageService.removeReaction(messageId, reactionType);
+      
+      console.log('✅ Reaction removed successfully');
+      
+      setMessages(prev => prev.map(msg => {
+        if (msg.id === messageId) {
+          const updatedReactions = (msg.reactions || []).filter(
+            reaction => !(reaction.user?.id === user?.id && reaction.reaction_type === reactionType)
+          );
+          return {
+            ...msg,
+            reactions: updatedReactions
+          };
+        }
+        return msg;
+      }));
+      
+    } catch (error) {
+      console.error("❌ Failed to remove reaction:", error);
+    }
+  };
+
+  const handleEditMessage = async (messageId, newContent) => {
+    try {
+      setError(null);
+      console.log('✏️ Editing message:', { messageId, newContent });
+      
+      const result = await messageService.editMessage(messageId, newContent);
+      
+      console.log('✅ Message edited successfully:', result);
+      
+      setMessages(prev => prev.map(msg => 
         msg.id === messageId 
-          ? { ...msg, is_pinned: true }
+          ? { ...msg, ...result, content: newContent, is_edited: true }
           : msg
       ));
       
     } catch (error) {
-      console.error('Failed to pin message:', error);
+      console.error("❌ Failed to edit message:", error);
+      setError("Failed to edit message");
+      await loadMessages();
     }
   };
 
-  const handleSendMessage = async (content, file = null) => {
+  const handlePinMessage = async (messageId, pin) => {
     try {
-      if (file) {
-        const optimisticFileMessage = {
-          id: `file-optimistic-${Date.now()}`,
-          content: `📎 ${file.name}`,
-          message_type: 'file',
-          file_name: file.name,
-          file_size: file.size,
-          file_type: file.type,
-          file_url: null,
-          timestamp: new Date().toISOString(),
-          user: {
-            id: 1,
-            display_name: 'You',
-            email: 'user@example.com',
-            avatar: null
-          },
-          is_own_message: true,
-          is_optimistic: true
-        };
-        
-        setLocalMessages(prev => [...prev, optimisticFileMessage]);
-
-        try {
-          const uploadResponse = await messageService.uploadFile(file, channelId);
-          
-          const realFileMessage = {
-            id: uploadResponse.id || `file-real-${Date.now()}`,
-            content: uploadResponse.content || `📎 ${uploadResponse.file_name}`,
-            message_type: uploadResponse.message_type || 'file',
-            file_url: getFixedFileUrl(uploadResponse.file_url),
-            file_name: uploadResponse.file_name,
-            file_size: uploadResponse.file_size,
-            file_type: uploadResponse.file_type,
-            timestamp: uploadResponse.timestamp || new Date().toISOString(),
-            user: uploadResponse.user || {
-              id: 1,
-              display_name: 'You',
-              email: 'user@example.com',
-              avatar: null
-            },
-            is_own_message: true
-          };
-          
-          setLocalMessages(prev => 
-            prev.map(msg => 
-              msg.id === optimisticFileMessage.id ? realFileMessage : msg
-            )
-          );
-          
-        } catch (uploadError) {
-          setLocalMessages(prev => 
-            prev.map(msg => 
-              msg.id === optimisticFileMessage.id 
-                ? { 
-                    ...msg, 
-                    content: `❌ ${file.name} (upload failed)`,
-                    file_url: null 
-                  }
-                : msg
-            )
-          );
-        }
-        
+      console.log('📌 Toggling pin status:', { messageId, pin });
+      
+      if (pin) {
+        await messageService.pinMessage(messageId);
       } else {
-        const tempMessage = {
-          id: `text-${Date.now()}`,
-          content: content,
-          message_type: 'text',
-          timestamp: new Date().toISOString(),
-          user: { 
-            id: 1, 
-            display_name: 'You',
-            email: 'user@example.com',
-            avatar: null
-          },
-          is_own_message: true,
-          is_optimistic: true
-        };
-        
-        setLocalMessages(prev => [...prev, tempMessage]);
-
-        try {
-          if (sendMessage) {
-            sendMessage({
-              type: "chat_message",
-              content: content,
-              channel_id: channelId,
-              message_type: "text"
-            });
-          } else {
-            await messageService.sendChannelMessage(channelId, content);
-          }
-        } catch (error) {
-          // Message remains in local state
-        }
+        await messageService.unpinMessage(messageId);
       }
       
+      console.log('✅ Pin status updated successfully');
+      
+      await loadMessages();
+      
     } catch (error) {
-      console.error('Send failed:', error);
+      console.error("❌ Failed to update pin status:", error);
+      setError("Failed to update pin status");
     }
   };
 
-  useEffect(() => {
-    if (allMessages.length > 0) {
-      const storageKey = `chat-messages-${channelId}`;
-      localStorage.setItem(storageKey, JSON.stringify(allMessages));
-    }
-  }, [allMessages, channelId]);
+  const handleRetry = () => {
+    setError(null);
+    loadChannelData();
+    loadMessages();
+  };
 
   if (loading) {
     return (
@@ -269,19 +300,46 @@ export default function ChannelChat() {
             <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
             <div>
               <h1 className="text-white font-semibold text-lg"># {channel?.name}</h1>
-              <p className="text-slate-400 text-sm">{channel?.topic}</p>
+              <p className="text-slate-400 text-sm">{channel?.topic || channel?.purpose || "Team collaboration space"}</p>
             </div>
           </div>
           
-          <div className="text-slate-400 text-sm">
-            {allMessages.length} messages
+          <div className="flex items-center space-x-4">
+            <div className="text-slate-400 text-sm">
+              {messages.length} messages
+            </div>
+            
+            <button
+              onClick={handleRetry}
+              className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-sm transition-colors"
+            >
+              Refresh
+            </button>
           </div>
         </div>
       </div>
 
+      {/* Error Banner */}
+      {error && (
+        <div className="bg-red-900/50 border-b border-red-700 px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-red-400">⚠️</span>
+              <span className="text-red-200 text-sm">{error}</span>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-300"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Messages Area */}
       <div className="flex-1 overflow-hidden">
-        {allMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8">
             <div className="w-24 h-24 bg-blue-900/30 rounded-full flex items-center justify-center mb-6">
               <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
@@ -292,14 +350,25 @@ export default function ChannelChat() {
             <p className="text-slate-400 text-center max-w-md">
               Start the conversation by sending the first message in #{channel?.name}
             </p>
+            {error && (
+              <button
+                onClick={handleRetry}
+                className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              >
+                Retry Loading Messages
+              </button>
+            )}
           </div>
         ) : (
           <MessageList 
-            messages={allMessages} 
-            roomId={channelId}
+            messages={messages} 
+            onDelete={handleDeleteMessage}
+            onEdit={handleEditMessage}
             onReact={handleReactToMessage}
+            onRemoveReaction={handleRemoveReaction}
             onReply={handleReplyToMessage}
             onPin={handlePinMessage}
+            replyingTo={replyingTo}
           />
         )}
         <div ref={messagesEndRef} />
@@ -309,9 +378,17 @@ export default function ChannelChat() {
       <div className="border-t border-slate-700 p-6">
         <MessageInput 
           onSendMessage={handleSendMessage} 
-          onTyping={() => {}} 
-          placeholder={`Message #${channel?.name}`}
+          disabled={sending}
+          placeholder={sending ? "Sending..." : `Message #${channel?.name}`}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
         />
+        
+        {sending && (
+          <div className="mt-2 text-center">
+            <p className="text-blue-400 text-sm">Sending message...</p>
+          </div>
+        )}
       </div>
     </div>
   );
