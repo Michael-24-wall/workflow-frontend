@@ -61,9 +61,17 @@ class ChatApiService {
         throw new Error(`Authentication failed for ${endpoint}`);
       }
 
+      // 🆕 FIX: Don't return fallback data for POST/PUT/DELETE requests on 404
       if (response.status === 404) {
         console.warn('⚠️ Chat endpoint not found:', endpoint);
-        return this.getFallbackData(endpoint);
+        
+        // Only return fallback for GET requests
+        if (!options.method || options.method === 'GET') {
+          return this.getFallbackData(endpoint);
+        }
+        
+        // For POST/PUT/DELETE, throw error so the calling function can handle it
+        throw new Error(`Endpoint not found: ${endpoint}`);
       }
 
       // Handle empty responses
@@ -464,7 +472,7 @@ class ChatApiService {
   }
 
   // =============================================================================
-  // REACTION METHODS - FIXED BASED ON POSTMAN WORKING ENDPOINT
+  // REACTION METHODS - UPDATED WITH CORRECT REACTION TYPES
   // =============================================================================
 
   async reactToMessage(messageId, reactionType) {
@@ -499,7 +507,7 @@ class ChatApiService {
         reactionType
       });
 
-      // For removal, try DELETE on the same endpoint
+      // For removal, use DELETE on the same endpoint
       const response = await this.request(`/messages/${messageId}/react/`, {
         method: 'DELETE',
         body: JSON.stringify({ reaction_type: reactionType }),
@@ -510,31 +518,72 @@ class ChatApiService {
 
     } catch (error) {
       console.error('❌ Remove reaction failed:', error);
-      return { success: true, is_optimistic: true };
+      
+      // Return optimistic response for removal
+      return { 
+        success: true, 
+        is_optimistic: true,
+        action: 'removed'
+      };
     }
   }
 
   // Helper method for optimistic updates
   createOptimisticReaction(messageId, reactionType) {
     const currentUser = {
-      id: 'current-user',
-      email: 'user@example.com',
-      display_name: 'You'
+      id: 1, // Current user ID
+      email: "michaelwallance4@gmail.com",
+      first_name: "Michael",
+      last_name: "Wallance",
+      display_name: "Michael Wallance",
+      is_online: true,
+      avatar: null,
+      profile_picture: null
     };
 
     return {
-      data: {
-        id: `opt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        message_id: messageId,
-        reaction_type: reactionType,
+      reaction: {
+        id: Date.now(),
         user: currentUser,
-        user_id: currentUser.id,
-        created_at: new Date().toISOString(),
-        is_optimistic: true
+        user_name: "Michael Wallance",
+        message: messageId,
+        reaction_type: reactionType,
+        reaction_emoji: this.getReactionEmoji(reactionType),
+        created_at: new Date().toISOString()
       },
-      is_optimistic: true,
-      success: true
+      action: "added",
+      is_optimistic: true
     };
+  }
+
+  // 🆕 UPDATED: Helper to get emoji for reaction type - matches Django valid reactions
+  getReactionEmoji(reactionType) {
+    const emojiMap = {
+      'like': '👍',
+      'love': '❤️', 
+      'laugh': '😂',
+      'wow': '😮',
+      'sad': '😢',
+      'angry': '😠'
+    };
+    return emojiMap[reactionType] || reactionType;
+  }
+
+  // 🆕 ADDED: Helper to map emoji to valid Django reaction types
+  getReactionTypeFromEmoji(emoji) {
+    const reactionMap = {
+      '👍': 'like',
+      '❤️': 'love',
+      '😂': 'laugh', 
+      '😮': 'wow',
+      '😢': 'sad',
+      '😠': 'angry',
+      '🙏': 'like', // Fallback to like
+      '👏': 'like', // Fallback to like
+      '🔥': 'like', // Fallback to like
+      '🎉': 'like'  // Fallback to like
+    };
+    return reactionMap[emoji] || 'like';
   }
 
   // Get message reactions
@@ -865,7 +914,10 @@ export const messageService = {
   getPinnedMessages: (channelId) => chatApiService.getPinnedMessages(channelId),
   pinMessage: (messageId) => chatApiService.pinMessage(messageId),
   unpinMessage: (messageId) => chatApiService.unpinMessage(messageId),
-  uploadFile: (file, roomId, description) => chatApiService.uploadFile(file, roomId, description)
+  uploadFile: (file, roomId, description) => chatApiService.uploadFile(file, roomId, description),
+  // 🆕 ADDED: Helper methods for reaction mapping
+  getReactionTypeFromEmoji: (emoji) => chatApiService.getReactionTypeFromEmoji(emoji),
+  getReactionEmoji: (reactionType) => chatApiService.getReactionEmoji(reactionType)
 };
 
 export const fileService = {

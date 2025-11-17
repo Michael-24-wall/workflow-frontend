@@ -25,6 +25,7 @@ export function WebSocketProvider({ children }) {
   const [messages, setMessages] = useState({});
   const [typingUsers, setTypingUsers] = useState({});
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [lastMessage, setLastMessage] = useState(null); // Track last message for components
   
   const { user, isAuthenticated } = useAuthStore();
   
@@ -233,6 +234,153 @@ export function WebSocketProvider({ children }) {
     return messages;
   };
 
+  // =============================================================================
+  // REAL-TIME REACTION HANDLING
+  // =============================================================================
+
+  const handleReactionAdded = (data) => {
+    console.log('💖 REACTION ADDED WebSocket message:', data);
+    
+    const { message_id, reaction_type, user_id, user, dm_id, channel_id } = data;
+    
+    if (!message_id) {
+      console.error('❌ No message_id in reaction data:', data);
+      return;
+    }
+
+    // Find which room this message belongs to
+    const roomId = dm_id || channel_id;
+    if (!roomId) {
+      console.error('❌ No room ID in reaction data:', data);
+      return;
+    }
+
+    console.log(`🔄 Updating reaction for message ${message_id} in room ${roomId}`);
+
+    setMessages(prev => {
+      const roomMessages = prev[roomId] || [];
+      const messageIndex = roomMessages.findIndex(msg => msg.id === message_id);
+      
+      if (messageIndex === -1) {
+        console.warn(`⚠️ Message ${message_id} not found in room ${roomId}`);
+        return prev;
+      }
+
+      const updatedMessages = [...roomMessages];
+      const message = { ...updatedMessages[messageIndex] };
+      
+      // Initialize reactions array if it doesn't exist
+      if (!message.reactions) {
+        message.reactions = [];
+      }
+
+      // Check if user already has this reaction (avoid duplicates)
+      const existingReactionIndex = message.reactions.findIndex(
+        r => r.user_id === user_id && r.reaction_type === reaction_type
+      );
+
+      if (existingReactionIndex === -1) {
+        // Add new reaction
+        const newReaction = {
+          id: data.reaction_id || `reaction-${Date.now()}`,
+          user_id: user_id,
+          reaction_type: reaction_type,
+          user: user || { id: user_id, email: 'user@example.com' },
+          created_at: data.timestamp || new Date().toISOString()
+        };
+        
+        message.reactions.push(newReaction);
+        console.log(`➕ Added reaction: ${reaction_type} by user ${user_id}`);
+      } else {
+        console.log(`⚠️ Reaction already exists: ${reaction_type} by user ${user_id}`);
+      }
+
+      updatedMessages[messageIndex] = message;
+      
+      return {
+        ...prev,
+        [roomId]: updatedMessages
+      };
+    });
+
+    // Notify components about the reaction update
+    setLastMessage({
+      type: 'reaction_added',
+      message_id,
+      reaction_type,
+      user_id,
+      dm_id,
+      channel_id,
+      timestamp: new Date().toISOString()
+    });
+  };
+
+  const handleReactionRemoved = (data) => {
+    console.log('🗑️ REACTION REMOVED WebSocket message:', data);
+    
+    const { message_id, reaction_type, user_id, dm_id, channel_id } = data;
+    
+    if (!message_id) {
+      console.error('❌ No message_id in reaction removal data:', data);
+      return;
+    }
+
+    const roomId = dm_id || channel_id;
+    if (!roomId) {
+      console.error('❌ No room ID in reaction removal data:', data);
+      return;
+    }
+
+    console.log(`🔄 Removing reaction from message ${message_id} in room ${roomId}`);
+
+    setMessages(prev => {
+      const roomMessages = prev[roomId] || [];
+      const messageIndex = roomMessages.findIndex(msg => msg.id === message_id);
+      
+      if (messageIndex === -1) {
+        console.warn(`⚠️ Message ${message_id} not found in room ${roomId}`);
+        return prev;
+      }
+
+      const updatedMessages = [...roomMessages];
+      const message = { ...updatedMessages[messageIndex] };
+      
+      if (!message.reactions) {
+        console.warn(`⚠️ No reactions found for message ${message_id}`);
+        return prev;
+      }
+
+      // Remove the specific reaction
+      message.reactions = message.reactions.filter(
+        r => !(r.user_id === user_id && r.reaction_type === reaction_type)
+      );
+
+      console.log(`➖ Removed reaction: ${reaction_type} by user ${user_id}`);
+
+      updatedMessages[messageIndex] = message;
+      
+      return {
+        ...prev,
+        [roomId]: updatedMessages
+      };
+    });
+
+    // Notify components about the reaction removal
+    setLastMessage({
+      type: 'reaction_removed',
+      message_id,
+      reaction_type,
+      user_id,
+      dm_id,
+      channel_id,
+      timestamp: new Date().toISOString()
+    });
+  };
+
+  // =============================================================================
+  // WEBSOCKET CONNECTION
+  // =============================================================================
+
   // FIXED: Enhanced WebSocket connection with better resource management
   const connectWebSocket = (url, key) => {
     // Enhanced authentication check
@@ -343,6 +491,21 @@ export function WebSocketProvider({ children }) {
                 }
                 break;
                 
+              // =============================================================================
+              // REAL-TIME REACTION HANDLING
+              // =============================================================================
+              case 'reaction_added':
+              case 'message_reacted':
+                console.log('💖 REACTION WebSocket message received');
+                handleReactionAdded(data);
+                break;
+
+              case 'reaction_removed':
+              case 'message_unreacted':
+                console.log('🗑️ REACTION REMOVAL WebSocket message received');
+                handleReactionRemoved(data);
+                break;
+
               case 'user_typing':
               case 'typing_indicator':
                 console.log('⌨️ Handling typing indicator:', data);
@@ -520,6 +683,14 @@ export function WebSocketProvider({ children }) {
       console.log(`📊 Messages for room ${roomId}:`, updatedMessages[roomId].length);
       return updatedMessages;
     });
+
+    // Notify components about the new message
+    setLastMessage({
+      type: 'new_message',
+      message,
+      roomId,
+      timestamp: new Date().toISOString()
+    });
   };
 
   // =============================================================================
@@ -625,6 +796,58 @@ export function WebSocketProvider({ children }) {
     }
   };
 
+  // Send reaction to specific message
+  const sendReaction = (roomId, messageId, reactionType, roomType = 'workspace') => {
+    const key = `${roomType}_${roomId}`;
+    const socket = socketsRef.current[key];
+    
+    if (socket && isConnected[key]) {
+      const currentUser = getCurrentUser();
+      const reactionMessage = {
+        type: 'add_reaction',
+        room_id: roomId,
+        room_type: roomType,
+        message_id: messageId,
+        reaction_type: reactionType,
+        user_id: currentUser?.id,
+        user_email: currentUser?.email,
+        timestamp: new Date().toISOString()
+      };
+      console.log('💖 Sending reaction via WebSocket:', reactionMessage);
+      socket.send(JSON.stringify(reactionMessage));
+      return true;
+    } else {
+      console.error(`❌ Cannot send reaction - WebSocket not connected: ${key}`);
+      return false;
+    }
+  };
+
+  // Remove reaction from specific message
+  const removeReaction = (roomId, messageId, reactionType, roomType = 'workspace') => {
+    const key = `${roomType}_${roomId}`;
+    const socket = socketsRef.current[key];
+    
+    if (socket && isConnected[key]) {
+      const currentUser = getCurrentUser();
+      const reactionMessage = {
+        type: 'remove_reaction',
+        room_id: roomId,
+        room_type: roomType,
+        message_id: messageId,
+        reaction_type: reactionType,
+        user_id: currentUser?.id,
+        user_email: currentUser?.email,
+        timestamp: new Date().toISOString()
+      };
+      console.log('🗑️ Removing reaction via WebSocket:', reactionMessage);
+      socket.send(JSON.stringify(reactionMessage));
+      return true;
+    } else {
+      console.error(`❌ Cannot remove reaction - WebSocket not connected: ${key}`);
+      return false;
+    }
+  };
+
   // Send typing indicator
   const sendTyping = (roomId, isTyping, roomType = 'workspace') => {
     const key = `${roomType}_${roomId}`;
@@ -724,6 +947,7 @@ export function WebSocketProvider({ children }) {
     // Data
     messages,
     typingUsers,
+    lastMessage, // Add lastMessage to context
     getMessages,
     getTypingUsers,
     
@@ -739,6 +963,10 @@ export function WebSocketProvider({ children }) {
     // Messaging methods
     sendMessage,
     sendTyping,
+    
+    // Reaction methods
+    sendReaction,
+    removeReaction,
     
     // Disconnection methods
     disconnect,

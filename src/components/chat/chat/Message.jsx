@@ -18,7 +18,31 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
   const isOwnMessage = message.user?.id === user?.id;
   const isDirectMessage = onStartDirectMessage && !isOwnMessage;
 
-  // 🆕 Convert message.id to string for safe checking
+  // 🆕 UPDATED: Use the API service helper methods for correct reaction mapping
+  const reactionMap = {
+    '👍': 'like',
+    '❤️': 'love', 
+    '😂': 'laugh',
+    '😮': 'wow',
+    '😢': 'sad',
+    '😠': 'angry',
+    '🙏': 'like', // Fallback
+    '👏': 'like', // Fallback
+    '🔥': 'like', // Fallback
+    '🎉': 'like'  // Fallback
+  };
+
+  // 🆕 UPDATED: Reverse mapping for display using API helper
+  const getEmojiForReaction = (reactionType) => {
+    return messageService.getReactionEmoji(reactionType) || reactionType;
+  };
+
+  // 🆕 UPDATED: Convert emoji to valid reaction type using API helper
+  const getReactionTypeFromEmoji = (emoji) => {
+    return messageService.getReactionTypeFromEmoji(emoji);
+  };
+
+  // Convert message.id to string for safe checking
   const messageIdStr = String(message.id || '');
 
   // Check if message has an image file
@@ -50,14 +74,17 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleReaction = async (reactionType) => {
+  const handleReaction = async (emoji) => {
     if (reacting) return;
     
     setReacting(true);
     try {
+      // 🆕 FIXED: Convert emoji to valid reaction type
+      const reactionType = getReactionTypeFromEmoji(emoji);
+      
       console.log('💖 Handling reaction for message:', {
         messageId: message.id,
-        messageContent: message.content?.substring(0, 50),
+        emoji,
         reactionType,
         isTemporary: message.is_temp || messageIdStr.includes('temp-') || messageIdStr.includes('text-'),
         isNumericId: !isNaN(message.id) && Number.isInteger(Number(message.id))
@@ -113,14 +140,14 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
           });
         }
 
-        setQuickReaction(reactionType);
+        setQuickReaction(emoji);
         setTimeout(() => setQuickReaction(null), 1000);
         setShowReactions(false);
         return;
       }
 
       // For real messages with valid numeric IDs, use the API
-      console.log('🎯 Real message - calling API');
+      console.log('🎯 Real message - calling API with reaction type:', reactionType);
       const existingReaction = message.reactions?.find(
         r => r.user_id === user?.id && r.reaction_type === reactionType
       );
@@ -138,7 +165,7 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
       }
 
       // Show quick reaction feedback
-      setQuickReaction(reactionType);
+      setQuickReaction(emoji);
       setTimeout(() => setQuickReaction(null), 1000);
       
       // Handle the response
@@ -182,18 +209,18 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
       
       // For API errors, still update UI optimistically for better UX
       const existingReaction = message.reactions?.find(
-        r => r.user_id === user?.id && r.reaction_type === reactionType
+        r => r.user_id === user?.id && r.reaction_type === getReactionTypeFromEmoji(emoji)
       );
 
       if (onReactionUpdate) {
         const updatedReactions = existingReaction
-          ? message.reactions?.filter(r => !(r.user_id === user?.id && r.reaction_type === reactionType))
+          ? message.reactions?.filter(r => !(r.user_id === user?.id && r.reaction_type === getReactionTypeFromEmoji(emoji)))
           : [
               ...(message.reactions || []),
               {
                 id: `error-reaction-${Date.now()}`,
                 user_id: user?.id,
-                reaction_type: reactionType,
+                reaction_type: getReactionTypeFromEmoji(emoji),
                 created_at: new Date().toISOString(),
                 user: user,
                 is_optimistic: true,
@@ -211,13 +238,17 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
     }
   };
 
-  const handleQuickReaction = async (reactionType) => {
+  const handleQuickReaction = async (emoji) => {
     if (reacting) return;
     
     setReacting(true);
     try {
+      // 🆕 FIXED: Convert emoji to valid reaction type
+      const reactionType = getReactionTypeFromEmoji(emoji);
+      
       console.log('⚡ Quick reaction for message:', {
         messageId: message.id,
+        emoji,
         reactionType,
         isTemporary: message.is_temp || messageIdStr.includes('temp-') || messageIdStr.includes('text-'),
         isNumericId: !isNaN(message.id) && Number.isInteger(Number(message.id))
@@ -263,13 +294,13 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
           });
         }
 
-        setQuickReaction(reactionType);
+        setQuickReaction(emoji);
         setTimeout(() => setQuickReaction(null), 1000);
         return;
       }
 
       // For real messages, use the API
-      console.log('⚡ Quick reaction - real message, calling API');
+      console.log('⚡ Quick reaction - real message, calling API with reaction type:', reactionType);
       const existingReaction = message.reactions?.find(
         r => r.user_id === user?.id && r.reaction_type === reactionType
       );
@@ -282,7 +313,7 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
         response = await messageService.reactToMessage(message.id, reactionType);
       }
 
-      setQuickReaction(reactionType);
+      setQuickReaction(emoji);
       setTimeout(() => setQuickReaction(null), 1000);
       
       // Handle response
@@ -318,18 +349,18 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
       
       // Fallback to optimistic update on error
       const existingReaction = message.reactions?.find(
-        r => r.user_id === user?.id && r.reaction_type === reactionType
+        r => r.user_id === user?.id && r.reaction_type === getReactionTypeFromEmoji(emoji)
       );
 
       if (onReactionUpdate) {
         const updatedReactions = existingReaction
-          ? message.reactions?.filter(r => !(r.user_id === user?.id && r.reaction_type === reactionType))
+          ? message.reactions?.filter(r => !(r.user_id === user?.id && r.reaction_type === getReactionTypeFromEmoji(emoji)))
           : [
               ...(message.reactions || []),
               {
                 id: `error-quick-${Date.now()}`,
                 user_id: user?.id,
-                reaction_type: reactionType,
+                reaction_type: getReactionTypeFromEmoji(emoji),
                 created_at: new Date().toISOString(),
                 user: user,
                 is_optimistic: true
@@ -388,12 +419,13 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
     setImageError(true);
   };
 
-  // Group reactions by type for display
+  // 🆕 UPDATED: Group reactions by type for display (using emojis)
   const groupedReactions = message.reactions?.reduce((acc, reaction) => {
-    if (!acc[reaction.reaction_type]) {
-      acc[reaction.reaction_type] = [];
+    const emoji = getEmojiForReaction(reaction.reaction_type);
+    if (!acc[emoji]) {
+      acc[emoji] = [];
     }
-    acc[reaction.reaction_type].push(reaction);
+    acc[emoji].push(reaction);
     return acc;
   }, {}) || {};
 
@@ -638,15 +670,15 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
             </div>
           )}
 
-          {/* Reactions Display - Like WhatsApp */}
+          {/* 🆕 UPDATED: Reactions Display - Like WhatsApp (using emojis) */}
           {Object.keys(groupedReactions).length > 0 && (
             <div className={`flex items-center space-x-1 mt-2 ${isOwnMessage ? 'justify-end' : ''}`}>
               <div className="bg-gray-800 bg-opacity-80 rounded-full px-2 py-1 flex items-center space-x-1">
                 {Object.entries(groupedReactions)
                   .slice(0, 3)
-                  .map(([reactionType, reactions]) => (
-                    <div key={reactionType} className="flex items-center space-x-1">
-                      <span className="text-xs">{reactionType}</span>
+                  .map(([emoji, reactions]) => (
+                    <div key={emoji} className="flex items-center space-x-1">
+                      <span className="text-xs">{emoji}</span>
                       <span className="text-gray-300 text-xs">
                         {reactions.length > 1 ? reactions.length : ''}
                       </span>
@@ -671,7 +703,7 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
                   onClick={() => handleQuickReaction(emoji)}
                   disabled={reacting}
                   className={`w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-600 transition-all duration-150 text-lg ${
-                    userReaction?.reaction_type === emoji ? 'bg-blue-500 scale-110' : ''
+                    userReaction?.reaction_type === getReactionTypeFromEmoji(emoji) ? 'bg-blue-500 scale-110' : ''
                   } ${reacting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={`React with ${emoji}`}
                 >
@@ -731,7 +763,7 @@ export default function Message({ message, showAvatar, onReply, onPin, onReactio
                   onClick={() => handleReaction(emoji)}
                   disabled={reacting}
                   className={`w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-600 transition-all duration-200 text-xl ${
-                    userReaction?.reaction_type === emoji ? 'bg-blue-500 scale-110' : ''
+                    userReaction?.reaction_type === getReactionTypeFromEmoji(emoji) ? 'bg-blue-500 scale-110' : ''
                   } ${reacting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={label}
                 >
