@@ -16,12 +16,37 @@ export default function ChatDashboard() {
   const [activeTab, setActiveTab] = useState('channels');
   const [error, setError] = useState(null);
   const [selectedChannel, setSelectedChannel] = useState(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const { user, isAuthenticated, loading: authLoading } = useAuth();
-  const { connectToWorkspace, isRoomConnected, lastMessage } = useWebSocket();
+  const { 
+    connectToWorkspace, 
+    isRoomConnected, 
+    isConnected,
+    connectionStatus,
+    lastMessage 
+  } = useWebSocket();
 
   // Use ref to track if we've loaded data to prevent WebSocket overwrites
   const dataLoadedRef = useRef(false);
+
+  // FIXED: Correct WebSocket status checking
+  const workspaceKey = `workspace_${workspaceId}`;
+  const isWsConnected = isRoomConnected(workspaceId, 'workspace') || isConnected[workspaceKey] || false;
+
+  // Debug WebSocket connection
+  useEffect(() => {
+    console.log('🔌 WebSocket Status Debug:', {
+      workspaceId,
+      workspaceKey,
+      isRoomConnected: isRoomConnected(workspaceId, 'workspace'),
+      isConnectedDirect: isConnected[workspaceKey],
+      finalStatus: isWsConnected,
+      connectionStatus,
+      hasLastMessage: !!lastMessage,
+      lastMessageType: lastMessage?.type
+    });
+  }, [workspaceId, isWsConnected, lastMessage, connectionStatus]);
 
   // Load workspace data from API
   useEffect(() => {
@@ -164,6 +189,10 @@ export default function ChatDashboard() {
     navigate(`/chat/${workspaceId}/create-channel`);
   };
 
+  const toggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed);
+  };
+
   // Add a manual refresh function
   const handleRefresh = async () => {
     console.log('🔄 Manual refresh triggered');
@@ -210,16 +239,16 @@ export default function ChatDashboard() {
     );
   }
 
-  const isWsConnected = isRoomConnected(`workspace_${workspaceId}`);
-
   return (
     <div className="flex-1 flex h-screen bg-white">
-      {/* ONLY SIDEBAR - New Component */}
-      <Sidebar 
-        workspaceId={workspaceId}
-        onChannelSelect={handleChannelSelect}
-        onDmSelect={handleDMSelect}
-      />
+      {/* Sidebar with Toggle */}
+      <div className={`transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'w-0' : 'w-80'}`}>
+        <Sidebar 
+          workspaceId={workspaceId}
+          onChannelSelect={handleChannelSelect}
+          onDmSelect={handleDMSelect}
+        />
+      </div>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col">
@@ -227,6 +256,29 @@ export default function ChatDashboard() {
         <div className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
+              {/* Sidebar Toggle Button */}
+              <button
+                onClick={toggleSidebar}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors duration-200"
+                title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                <svg 
+                  className={`w-5 h-5 text-gray-600 transition-transform duration-300 ${
+                    sidebarCollapsed ? 'rotate-180' : ''
+                  }`}
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M4 6h16M4 12h16M4 18h16" 
+                  />
+                </svg>
+              </button>
+
               <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-sm">
                   {workspace?.name?.charAt(0) || 'W'}
@@ -249,10 +301,20 @@ export default function ChatDashboard() {
               >
                 <span className="text-sm font-medium">Refresh</span>
               </button>
+              
+              {/* FIXED: WebSocket Status Indicator */}
               <div className="flex items-center space-x-2 bg-gray-100 px-3 py-2 rounded-lg">
                 <div 
-                  className={`w-3 h-3 rounded-full ${isWsConnected ? 'bg-green-500' : 'bg-red-400'}`} 
-                  title={isWsConnected ? 'Connected' : 'Disconnected'} 
+                  className={`w-3 h-3 rounded-full ${
+                    isWsConnected 
+                      ? 'bg-green-500 animate-pulse' 
+                      : 'bg-red-400'
+                  }`} 
+                  title={
+                    isWsConnected 
+                      ? 'WebSocket connected and active' 
+                      : 'WebSocket disconnected'
+                  } 
                 />
                 <span className="text-sm text-gray-600">
                   {isWsConnected ? 'Live' : 'Offline'}
@@ -281,6 +343,18 @@ export default function ChatDashboard() {
                   : 'Get started by creating your first channel to organize conversations and collaborate with your team members.'
                 }
               </p>
+              
+              {/* Sidebar Hint when collapsed */}
+              {sidebarCollapsed && (
+                <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200 max-w-md mx-auto">
+                  <div className="flex items-center justify-center space-x-2 text-blue-700">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-sm font-medium">Sidebar is collapsed. Click the menu icon to expand.</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Stats */}
@@ -312,7 +386,7 @@ export default function ChatDashboard() {
               <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium text-gray-600">Status</p>
+                    <p className="text-sm font-medium text-gray-600">Connection</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {isWsConnected ? 'Live' : 'Offline'}
                     </p>
@@ -324,6 +398,30 @@ export default function ChatDashboard() {
                       isWsConnected ? 'bg-green-500' : 'bg-red-500'
                     }`}></div>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* WebSocket Debug Info */}
+            <div className="bg-blue-50 rounded-lg p-4 mb-6 border border-blue-200">
+              <div className="text-sm text-blue-800 space-y-1">
+                <div className="flex justify-between">
+                  <span>WebSocket Status:</span>
+                  <span className={`font-semibold ${isWsConnected ? 'text-green-600' : 'text-red-600'}`}>
+                    {isWsConnected ? 'CONNECTED' : 'DISCONNECTED'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Workspace ID:</span>
+                  <span className="font-mono">{workspaceId}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Last Message:</span>
+                  <span className="font-mono">{lastMessage?.type || 'None'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Sidebar:</span>
+                  <span className="font-semibold">{sidebarCollapsed ? 'Collapsed' : 'Expanded'}</span>
                 </div>
               </div>
             </div>
@@ -344,6 +442,12 @@ export default function ChatDashboard() {
                   Create First Channel
                 </button>
               )}
+              <button
+                onClick={toggleSidebar}
+                className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-3 rounded-xl font-semibold transition-colors duration-200 shadow-sm"
+              >
+                {sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar'}
+              </button>
             </div>
           </div>
         </div>
