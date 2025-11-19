@@ -8,6 +8,21 @@ export default function MessageList({ messages = [], onDelete, onEdit, onReact, 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  const sortedMessages = [...messages].sort((a, b) => {
+    // Pinned messages first
+    if (a.is_pinned && !b.is_pinned) return -1;
+    if (!a.is_pinned && b.is_pinned) return 1;
+    
+
+
+
+
+
+    const timeA = new Date(a.timestamp || a.created_at);
+    const timeB = new Date(b.timestamp || b.created_at);
+    return timeA - timeB; 
+  });
+
   if (!messages || messages.length === 0) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-slate-900 p-8">
@@ -25,9 +40,9 @@ export default function MessageList({ messages = [], onDelete, onEdit, onReact, 
     <div className="flex-1 flex flex-col bg-slate-900">
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-4">
-          {messages.map((message, index) => {
+          {sortedMessages.map((message, index) => {
             const showAvatar = index === 0 || 
-              messages[index - 1]?.user?.id !== message.user?.id;
+              sortedMessages[index - 1]?.user?.id !== message.user?.id;
             
             return (
               <Message 
@@ -39,7 +54,6 @@ export default function MessageList({ messages = [], onDelete, onEdit, onReact, 
                 onReact={onReact}
                 onReply={onReply}
                 onPin={onPin}
-
               />
             );
           })}

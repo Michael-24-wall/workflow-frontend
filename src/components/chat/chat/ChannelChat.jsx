@@ -4,104 +4,111 @@ import { useWebSocket } from "../../../contexts/chat/WebSocketContext";
 import { messageService, channelService } from "../../../services/chat/api";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
+import CreateChannelModal from "../../chat/CreateChannelModal";
 
 export default function ChannelChat() {
   const { channelId } = useParams();
-  const { sendMessage } = useWebSocket();
+  const { sendMessage, user } = useWebSocket();
   const [channel, setChannel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const messagesEndRef = useRef(null);
   const [replyingTo, setReplyingTo] = useState(null);
 
   useEffect(() => {
-    loadChannelData();
-    loadMessages();
+    if (channelId) {
+      loadChannelData();
+      loadMessages();
+    }
   }, [channelId]);
 
   const loadChannelData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const channelsResponse = await channelService.getChannels();
-      console.log('📋 Channels response:', channelsResponse);
-      
-      let currentChannel;
-      
-      if (channelsResponse.results && Array.isArray(channelsResponse.results)) {
-        currentChannel = channelsResponse.results.find(ch => ch.id === parseInt(channelId));
-      } else if (Array.isArray(channelsResponse)) {
-        currentChannel = channelsResponse.find(ch => ch.id === parseInt(channelId));
-      }
-      
-      if (currentChannel) {
-        console.log('✅ Found channel:', currentChannel);
-        setChannel(currentChannel);
-      } else {
-        console.log('⚠️ Channel not found, using fallback');
-        setChannel({ 
-          id: channelId, 
-          name: `Channel ${channelId}`,
-          topic: "General discussions"
-        });
-      }
-    } catch (error) {
-      console.error("Failed to load channel:", error);
-      setError("Failed to load channel data");
-      setChannel({ 
-        id: channelId, 
-        name: `Channel ${channelId}`,
-        topic: "Team collaboration space"
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  try {
+    setLoading(true);
+    setError(null);
+    
+    console.log('🔍 Loading channel data for ID:', channelId);
+    
+    // Use only the specific channel endpoint to avoid 404s
+    const currentChannel = await channelService.getChannel(channelId);
+    
+    console.log('✅ Channel loaded successfully:', currentChannel);
+    setChannel(currentChannel);
+    
+  } catch (error) {
+    console.error("❌ Failed to load channel:", error);
+    setError("Failed to load channel data");
+    // Set fallback channel data
+    setChannel({ 
+      id: parseInt(channelId), 
+      name: `Channel ${channelId}`,
+      topic: "Team collaboration space",
+      purpose: "General discussion channel"
+    });
+  } finally {
+    setLoading(false);
+  }
+};
   const loadMessages = async () => {
     try {
       setError(null);
       console.log('📥 Loading messages for channel:', channelId);
       
-      let response;
-      
-      if (channelService.getChannelMessages) {
-        response = await channelService.getChannelMessages(channelId);
-      } else if (channelService.getMessages) {
-        response = await channelService.getMessages(channelId);
-      } else if (messageService.getMessages) {
-        response = await messageService.getMessages(channelId);
-      } else {
-        response = await fetch(`http://localhost:9000/api/chat/channels/${channelId}/messages/`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-            'Content-Type': 'application/json',
-          },
-        }).then(res => res.json());
-      }
-      
+      const response = await channelService.getChannelMessages(channelId);
       console.log('📨 Messages response:', response);
       
+      // FIXED: Handle different response structures
       let messagesData = [];
       
       if (Array.isArray(response)) {
         messagesData = response;
-      } else if (response && response.results) {
+      } else if (response && Array.isArray(response.results)) {
         messagesData = response.results;
-      } else if (response && response.data) {
+      } else if (response && Array.isArray(response.data)) {
         messagesData = response.data;
+      } else if (response && response.messages && Array.isArray(response.messages)) {
+        messagesData = response.messages;
+      } else if (response && typeof response === 'object') {
+        // If it's a single message object, wrap it in an array
+        messagesData = [response];
       }
       
-      console.log(`✅ Loaded ${messagesData.length} messages`);
+      console.log(`✅ Loaded ${messagesData.length} messages`, messagesData);
       setMessages(messagesData);
       
     } catch (error) {
-      console.error("Failed to load messages:", error);
+      console.error("❌ Failed to load messages:", error);
       setError("Failed to load messages");
-      setMessages([]);
+      setMessages([]); // Ensure it's always an array
+    }
+  };
+
+  const handleCreateChannel = async (channelData) => {
+    try {
+      console.log('🚀 Creating channel:', channelData);
+      
+      const newChannel = await channelService.createChannel({
+        name: channelData.name,
+        topic: channelData.topic || '',
+        purpose: channelData.purpose || '',
+        channel_type: channelData.channel_type || 'public',
+        workspace: channelData.workspaceId,
+        is_private: channelData.is_private || false
+      });
+
+      console.log('✅ Channel created:', newChannel);
+      
+      setShowCreateChannel(false);
+      alert(`Channel "${newChannel.name}" created successfully!`);
+      
+      return newChannel;
+      
+    } catch (error) {
+      console.error('❌ Failed to create channel:', error);
+      throw error;
     }
   };
 
@@ -122,13 +129,19 @@ export default function ChannelChat() {
         console.log('✅ File upload response:', result);
       } else {
         console.log('💬 Sending text message');
-        result = await messageService.sendChannelMessage(channelId, content);
+        result = await messageService.sendChannelMessage(channelId, content.trim());
         console.log('✅ Text message response:', result);
       }
 
+      // Update messages state with new message
       if (result && result.id) {
         setMessages(prev => [...prev, result]);
+        // Scroll to bottom
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
       } else {
+        // If response doesn't include the message, reload messages
         await loadMessages();
       }
 
@@ -144,16 +157,23 @@ export default function ChannelChat() {
     try {
       setError(null);
       console.log('↪️ Replying to message:', { messageId, replyContent });
-      console.log('🔍 DEBUG - messageId type:', typeof messageId, 'value:', messageId);
       
-      const result = await messageService.replyToMessage(messageId, replyContent);
+      const result = await messageService.replyToMessage(
+        parseInt(messageId), 
+        replyContent.trim()
+      );
       
       console.log('✅ Reply sent successfully:', result);
       
+      // Clear reply state
       setReplyingTo(null);
       
+      // Update messages
       if (result && result.id) {
         setMessages(prev => [...prev, result]);
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
       } else {
         await loadMessages();
       }
@@ -173,11 +193,13 @@ export default function ChannelChat() {
       
       console.log('✅ Message deleted successfully');
       
+      // Remove message from local state
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
       
     } catch (error) {
       console.error("❌ Failed to delete message:", error);
       setError("Failed to delete message");
+      // Reload messages to ensure consistency
       await loadMessages();
     }
   };
@@ -190,12 +212,12 @@ export default function ChannelChat() {
       
       console.log('✅ Reaction added successfully:', result);
       
+      // Update message with new reactions
       setMessages(prev => prev.map(msg => {
         if (msg.id === messageId) {
-          const updatedReactions = result.reactions || msg.reactions || [];
           return {
             ...msg,
-            reactions: updatedReactions
+            reactions: result.reactions || msg.reactions || []
           };
         }
         return msg;
@@ -203,6 +225,7 @@ export default function ChannelChat() {
       
     } catch (error) {
       console.error("❌ Failed to add reaction:", error);
+      setError("Failed to add reaction");
     }
   };
 
@@ -214,6 +237,7 @@ export default function ChannelChat() {
       
       console.log('✅ Reaction removed successfully');
       
+      // Update message reactions in local state
       setMessages(prev => prev.map(msg => {
         if (msg.id === messageId) {
           const updatedReactions = (msg.reactions || []).filter(
@@ -229,6 +253,7 @@ export default function ChannelChat() {
       
     } catch (error) {
       console.error("❌ Failed to remove reaction:", error);
+      setError("Failed to remove reaction");
     }
   };
 
@@ -237,19 +262,27 @@ export default function ChannelChat() {
       setError(null);
       console.log('✏️ Editing message:', { messageId, newContent });
       
-      const result = await messageService.editMessage(messageId, newContent);
+      const result = await messageService.editMessage(messageId, newContent.trim());
       
       console.log('✅ Message edited successfully:', result);
       
+      // Update message in local state
       setMessages(prev => prev.map(msg => 
         msg.id === messageId 
-          ? { ...msg, ...result, content: newContent, is_edited: true }
+          ? { 
+              ...msg, 
+              ...result, 
+              content: newContent, 
+              is_edited: true,
+              edited_at: new Date().toISOString()
+            }
           : msg
       ));
       
     } catch (error) {
       console.error("❌ Failed to edit message:", error);
       setError("Failed to edit message");
+      // Reload messages to ensure consistency
       await loadMessages();
     }
   };
@@ -266,6 +299,7 @@ export default function ChannelChat() {
       
       console.log('✅ Pin status updated successfully');
       
+      // Reload messages to get updated pin status
       await loadMessages();
       
     } catch (error) {
@@ -279,6 +313,11 @@ export default function ChannelChat() {
     loadChannelData();
     loadMessages();
   };
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   if (loading) {
     return (
@@ -299,14 +338,27 @@ export default function ChannelChat() {
           <div className="flex items-center space-x-4">
             <div className="w-3 h-3 rounded-full bg-emerald-400"></div>
             <div>
-              <h1 className="text-white font-semibold text-lg"># {channel?.name}</h1>
-              <p className="text-slate-400 text-sm">{channel?.topic || channel?.purpose || "Team collaboration space"}</p>
+              <h1 className="text-white font-semibold text-lg">
+                # {channel?.name || `Channel ${channelId}`}
+              </h1>
+              <p className="text-slate-400 text-sm">
+                {channel?.topic || channel?.purpose || "Team collaboration space"}
+              </p>
             </div>
           </div>
           
           <div className="flex items-center space-x-4">
+            {/* Create Channel Button */}
+            <button
+              onClick={() => setShowCreateChannel(true)}
+              className="flex items-center space-x-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm transition-colors"
+            >
+              <span>+</span>
+              <span>Create Channel</span>
+            </button>
+            
             <div className="text-slate-400 text-sm">
-              {messages.length} messages
+              {messages.length} {messages.length === 1 ? 'message' : 'messages'}
             </div>
             
             <button
@@ -339,16 +391,21 @@ export default function ChannelChat() {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-hidden">
-        {messages.length === 0 ? (
+        {!Array.isArray(messages) || messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center p-8">
             <div className="w-24 h-24 bg-blue-900/30 rounded-full flex items-center justify-center mb-6">
               <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white text-xl">💬</span>
               </div>
             </div>
-            <h3 className="text-white text-xl font-semibold mb-3">No messages yet</h3>
+            <h3 className="text-white text-xl font-semibold mb-3">
+              {!Array.isArray(messages) ? 'Error loading messages' : 'No messages yet'}
+            </h3>
             <p className="text-slate-400 text-center max-w-md">
-              Start the conversation by sending the first message in #{channel?.name}
+              {!Array.isArray(messages) 
+                ? 'There was an error loading messages. Please try refreshing.' 
+                : `Start the conversation by sending the first message in #${channel?.name || `channel-${channelId}`}`
+              }
             </p>
             {error && (
               <button
@@ -366,9 +423,10 @@ export default function ChannelChat() {
             onEdit={handleEditMessage}
             onReact={handleReactToMessage}
             onRemoveReaction={handleRemoveReaction}
-            onReply={handleReplyToMessage}
+            onReply={(message) => setReplyingTo(message)}
             onPin={handlePinMessage}
             replyingTo={replyingTo}
+            currentUser={user}
           />
         )}
         <div ref={messagesEndRef} />
@@ -379,9 +437,10 @@ export default function ChannelChat() {
         <MessageInput 
           onSendMessage={handleSendMessage} 
           disabled={sending}
-          placeholder={sending ? "Sending..." : `Message #${channel?.name}`}
+          placeholder={sending ? "Sending..." : `Message #${channel?.name || channelId}`}
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(null)}
+          onSendReply={handleReplyToMessage}
         />
         
         {sending && (
@@ -390,6 +449,14 @@ export default function ChannelChat() {
           </div>
         )}
       </div>
+
+      {/* Create Channel Modal */}
+      <CreateChannelModal
+        isOpen={showCreateChannel}
+        onClose={() => setShowCreateChannel(false)}
+        workspaceId={channel?.workspace?.id || 13} // Use current workspace or default to 13
+        onChannelCreated={handleCreateChannel}
+      />
     </div>
   );
 }

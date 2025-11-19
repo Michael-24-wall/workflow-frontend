@@ -65,10 +65,10 @@ export default function ChatDashboard() {
 
         console.log('🔄 Loading workspace data for workspace:', workspaceId);
 
-        const [workspaceData, channelsData, dmData] = await Promise.all([
+          const [workspaceData, channelsData, dmData] = await Promise.all([
           workspaceService.getWorkspace(workspaceId),
-          channelService.getChannels(),
-          dmService.getDirectMessages()
+          channelService.getChannels(workspaceId),  
+          dmService.getDirectMessages(workspaceId)      
         ]);
 
         console.log('✅ Workspace data:', workspaceData);
@@ -200,7 +200,7 @@ export default function ChatDashboard() {
     dataLoadedRef.current = false;
     
     try {
-      const channelsData = await channelService.getChannels();
+      const channelsData = await channelService.getChannels(workspaceId);
       console.log('🔄 Refreshed channels data:', channelsData);
       
       let channelsArray = [];

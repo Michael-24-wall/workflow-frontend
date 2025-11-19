@@ -2,11 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useWebSocket } from '../../../contexts/chat/WebSocketContext';
-import { workspaceService, channelService } from '../../../services/chat/api';
+import { workspaceService, channelService, dmService } from '../../../services/chat/api';
 import ChannelList from './ChannelList';
 import ChannelChat from './ChannelChat';
 import DirectMessageList from './DirectMessageList';
 import DirectMessageChat from './DirectMessageChat';
+import OrganizationMembersList from './OrganizationMembersList';
+import ChatMembersSidebar from './ChatMembersSidebar';
 
 export default function ChatInterface() {
   const { workspaceId, channelId, dmId } = useParams();
@@ -16,26 +18,34 @@ export default function ChatInterface() {
   const [workspace, setWorkspace] = useState(null);
   const [channels, setChannels] = useState([]);
   const [directMessages, setDirectMessages] = useState([]);
+  const [organizationMembers, setOrganizationMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState('channels'); // 'channels' or 'dms'
+  const [showMembersSidebar, setShowMembersSidebar] = useState(false);
+  const [showOrganizationMembers, setShowOrganizationMembers] = useState(false);
   const [error, setError] = useState(null);
 
-  // Load workspace data
+  // Load workspace data and organization members
   useEffect(() => {
     const loadWorkspaceData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const [workspaceData, channelsData, dmData] = await Promise.all([
+        // Load workspace data, channels, DMs, and organization members in parallel
+        const [workspaceData, channelsData, dmData, orgMembersData] = await Promise.all([
           workspaceService.getWorkspace(workspaceId),
-          channelService.getChannels(),
-          dmService.getDirectMessages()
+          channelService.getChannels(workspaceId),
+          dmService.getDirectMessages(),
+          workspaceService.getOrganizationMembers()
         ]);
 
         setWorkspace(workspaceData);
         setChannels(Array.isArray(channelsData) ? channelsData : []);
         setDirectMessages(Array.isArray(dmData) ? dmData : []);
+        setOrganizationMembers(Array.isArray(orgMembersData) ? orgMembersData : []);
+
+        console.log(`✅ Loaded ${orgMembersData.length} organization members`);
 
       } catch (error) {
         console.error('Failed to load workspace data:', error);
@@ -73,12 +83,83 @@ export default function ChatInterface() {
     navigate(`/chat/${workspaceId}/create-channel`);
   };
 
+  const handleMemberSelect = (member) => {
+    console.log('Selected member:', member);
+    // You can implement starting a DM, viewing profile, etc.
+    // For now, just show a notification or open DM
+    alert(`Selected: ${member.display_name} (${member.email})`);
+  };
+
+  const handleStartDM = async (memberId) => {
+    try {
+      console.log('Starting DM with member:', memberId);
+      // Implement DM creation logic here
+      // This would typically create or get an existing DM conversation
+      const dm = await dmService.startDirectMessage(memberId);
+      if (dm && dm.id) {
+        navigate(`/chat/${workspaceId}/dm/${dm.id}`);
+      }
+    } catch (error) {
+      console.error('Failed to start DM:', error);
+      alert('Failed to start direct message');
+    }
+  };
+
+  const handleInviteToChannel = async (memberId) => {
+    if (!channelId) {
+      alert('Please select a channel first');
+      return;
+    }
+
+    try {
+      await channelService.inviteToChannel(channelId, [memberId]);
+      alert('Member invited to channel successfully');
+    } catch (error) {
+      console.error('Failed to invite member:', error);
+      alert('Failed to invite member to channel');
+    }
+  };
+
+  const refreshOrganizationMembers = async () => {
+    try {
+      const members = await workspaceService.getOrganizationMembers();
+      setOrganizationMembers(members);
+      console.log(`🔄 Refreshed organization members: ${members.length}`);
+    } catch (error) {
+      console.error('Failed to refresh organization members:', error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Loading chat...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <span className="text-2xl text-red-600">⚠️</span>
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
+            Failed to Load Chat
+          </h3>
+          <p className="text-gray-600 mb-4">
+            {error}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -101,6 +182,35 @@ export default function ChatInterface() {
               <p className="text-sm text-gray-500 truncate">
                 {workspace?.description || 'Team workspace'}
               </p>
+            </div>
+          </div>
+
+          {/* Organization Members Info */}
+          <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-900">
+                  {organizationMembers.length} Members
+                </p>
+                <p className="text-xs text-gray-500">
+                  In organization
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowOrganizationMembers(!showOrganizationMembers)}
+                  className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded"
+                >
+                  {showOrganizationMembers ? 'Hide' : 'View'}
+                </button>
+                <button
+                  onClick={refreshOrganizationMembers}
+                  className="text-xs bg-gray-500 hover:bg-gray-600 text-white px-2 py-1 rounded"
+                  title="Refresh members"
+                >
+                  ↻
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -131,7 +241,30 @@ export default function ChatInterface() {
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto">
-          {activeView === 'channels' ? (
+          {showOrganizationMembers ? (
+            <div className="h-full">
+              <div className="p-3 border-b border-gray-200 bg-white">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Organization Members
+                  </h3>
+                  <button
+                    onClick={() => setShowOrganizationMembers(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+              <OrganizationMembersList
+                workspaceId={workspaceId}
+                channelId={channelId}
+                onMemberSelect={handleMemberSelect}
+                onStartDM={handleStartDM}
+                onInviteToChannel={handleInviteToChannel}
+              />
+            </div>
+          ) : activeView === 'channels' ? (
             <ChannelList
               channels={channels}
               selectedChannelId={channelId}
@@ -146,6 +279,24 @@ export default function ChatInterface() {
             />
           )}
         </div>
+
+        {/* Quick Actions Footer */}
+        <div className="p-3 border-t border-gray-200 bg-white">
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setShowMembersSidebar(true)}
+              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium"
+            >
+              View Members
+            </button>
+            <button
+              onClick={() => setShowOrganizationMembers(true)}
+              className="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm font-medium"
+            >
+              All Members
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Main Chat Area */}
@@ -154,11 +305,13 @@ export default function ChatInterface() {
           <ChannelChat 
             workspaceId={workspaceId} 
             channelId={channelId} 
+            onShowMembers={() => setShowMembersSidebar(true)}
           />
         ) : dmId ? (
           <DirectMessageChat 
             workspaceId={workspaceId} 
             dmId={dmId} 
+            onShowMembers={() => setShowMembersSidebar(true)}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -172,18 +325,36 @@ export default function ChatInterface() {
               <p className="text-gray-600 mb-4">
                 Select a channel or start a conversation to begin chatting with your team.
               </p>
-              {channels.length === 0 && (
+              <div className="space-y-2">
+                {channels.length === 0 && (
+                  <button
+                    onClick={handleCreateChannel}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+                  >
+                    Create Your First Channel
+                  </button>
+                )}
                 <button
-                  onClick={handleCreateChannel}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium"
+                  onClick={() => setShowOrganizationMembers(true)}
+                  className="w-full bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium"
                 >
-                  Create Your First Channel
+                  Browse Organization Members ({organizationMembers.length})
                 </button>
-              )}
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Members Sidebar */}
+      <ChatMembersSidebar
+        workspaceId={workspaceId}
+        channelId={channelId}
+        isOpen={showMembersSidebar}
+        onClose={() => setShowMembersSidebar(false)}
+        onStartDM={handleStartDM}
+        onInviteToChannel={handleInviteToChannel}
+      />
     </div>
   );
 }

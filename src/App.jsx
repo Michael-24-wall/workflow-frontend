@@ -44,6 +44,24 @@ import Training from "./pages/dashboard/Training";
 import Compensation from "./pages/dashboard/Compensation";
 import Analytics from "./pages/dashboard/Analytics";
 
+
+// Add this to your app to track all failed requests
+window.addEventListener('error', (event) => {
+  if (event.target && event.target.src) {
+    console.log('🚨 Failed to load resource:', event.target.src);
+  }
+});
+
+// Or track fetch errors
+const originalFetch = window.fetch;
+window.fetch = function(...args) {
+  return originalFetch.apply(this, args).then(response => {
+    if (!response.ok) {
+      console.log('🚨 Fetch error:', response.status, response.url);
+    }
+    return response;
+  });
+};
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
   constructor(props) {

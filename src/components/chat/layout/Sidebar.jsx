@@ -13,6 +13,16 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
     dms: true
   });
 
+  // Safety check for missing workspaceId
+  useEffect(() => {
+    if (!workspaceId) {
+      console.error('❌ Sidebar: No workspaceId provided');
+      setError('No workspace selected');
+      setLoading(false);
+      return;
+    }
+  }, [workspaceId]);
+
   useEffect(() => {
     if (workspaceId) {
       loadSidebarData();
@@ -47,10 +57,16 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
       setError('');
       console.log('🔄 Loading sidebar data for workspace:', workspaceId);
 
-      // Load channels and DMs in parallel with proper error handling
+      if (!workspaceId) {
+        console.error('❌ No workspace ID provided to Sidebar');
+        setError('No workspace selected');
+        return;
+      }
+
+      // ✅ FIXED: Pass workspaceId to both service calls
       const [channelsResult, dmResult] = await Promise.allSettled([
-        channelService.getChannels(),
-        dmService.getDirectMessages()
+        channelService.getChannels(workspaceId), // ← FIXED: Added workspaceId
+        dmService.getDirectMessages(workspaceId) // ← FIXED: Added workspaceId
       ]);
 
       console.log('📊 Channels result:', channelsResult);
@@ -79,7 +95,7 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
         allChannels = [];
       }
 
-      // Filter channels for current workspace (CRITICAL FIX)
+      // Filter channels for current workspace (backup client-side filter)
       const workspaceChannels = allChannels.filter(channel => {
         const channelWorkspaceId = channel.workspace?.id || channel.workspace || channel.workspace_id;
         const matches = channelWorkspaceId == workspaceId;
@@ -88,7 +104,6 @@ export default function Sidebar({ workspaceId, onChannelSelect, onDmSelect }) {
       });
 
       console.log('🎯 Sidebar - Filtered channels:', workspaceChannels);
-
       setChannels(workspaceChannels);
 
       // Handle DMs response - ensure it's always an array

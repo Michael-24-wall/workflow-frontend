@@ -1,30 +1,43 @@
+// src/components/chat/chat/DirectMessages.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useWebSocket } from "../contexts/WebSocketContext";
-import { dmService } from "../../services/api";
-import MessageList from "./chat/MessageList";
+import { useWebSocket } from "../../../contexts/chat/WebSocketContext";
+import { useAuth } from "../../../contexts/chat/AuthContext";
+import { dmService, messageService } from "../../../services/chat/api";
+import Message from "./Message";
 import MessageInput from "./MessageInput";
 
 export default function DirectMessages() {
-  const { dmId } = useParams();
+  const { workspaceId, dmId } = useParams();
   const navigate = useNavigate();
-  const { messages, sendMessage, sendTyping } = useWebSocket();
+  const { user } = useAuth();
+  const { 
+    messages, 
+    sendMessage, 
+    sendTyping, 
+    isRoomConnected,
+    markAsRead,
+    lastMessage 
+  } = useWebSocket();
+
   const [dm, setDm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
-    if (dmId) {
+    if (dmId && workspaceId) {
       loadDMData();
     }
-  }, [dmId]);
+  }, [dmId, workspaceId]);
 
   const loadDMData = async () => {
     try {
       setLoading(true);
       setError("");
-      console.log(`🔄 Loading DM data for: ${dmId}`);
+      console.log(`🔄 Loading DM data for: ${dmId} in workspace: ${workspaceId}`);
       
       // Check authentication
       const token = localStorage.getItem('access_token');
@@ -32,11 +45,24 @@ export default function DirectMessages() {
         throw new Error('Authentication required. Please login again.');
       }
 
-      console.log('🔐 Token available, fetching DM messages...');
-      const dmData = await dmService.getDMMessages(dmId);
+      console.log('🔐 Token available, fetching DM details...');
+      
+      // Load DM details and messages
+      const [dmData, messagesData] = await Promise.all([
+        dmService.getDirectMessage(dmId),
+        messageService.getDMMessages(dmId)
+      ]);
+
       console.log('✅ DM data loaded:', dmData);
+      console.log('✅ DM messages loaded:', messagesData);
       
       setDm(dmData);
+
+      // Mark as read via WebSocket
+      if (isRoomConnected(workspaceId, 'workspace')) {
+        markAsRead('dm', dmId);
+      }
+
     } catch (error) {
       console.error("❌ Failed to load DM:", error);
       setError(error.message || "Failed to load direct messages");
@@ -55,6 +81,39 @@ export default function DirectMessages() {
     }
   };
 
+  // Handle WebSocket messages for this DM
+  useEffect(() => {
+    if (!lastMessage || !dmId) return;
+
+    console.log('📨 DM WebSocket message:', lastMessage);
+
+    switch (lastMessage.type) {
+      case 'dm_message':
+        if (lastMessage.dm_id === parseInt(dmId)) {
+          // Message will be automatically added to messages state via WebSocket context
+          console.log('✅ New DM message received');
+          
+          // Mark as read
+          if (isRoomConnected(workspaceId, 'workspace')) {
+            markAsRead('dm', dmId);
+          }
+        }
+        break;
+
+      case 'message_edited':
+        if (lastMessage.dm_id === parseInt(dmId)) {
+          console.log('✏️ DM message edited');
+        }
+        break;
+
+      case 'message_deleted':
+        if (lastMessage.dm_id === parseInt(dmId)) {
+          console.log('🗑️ DM message deleted');
+        }
+        break;
+    }
+  }, [lastMessage, dmId, workspaceId, isRoomConnected, markAsRead]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
@@ -65,30 +124,98 @@ export default function DirectMessages() {
 
   const handleSendMessage = async (content, file = null) => {
     try {
+      setSending(true);
       console.log(`💬 Sending message to DM ${dmId}:`, content);
       
       if (file) {
-        console.log('📁 Uploading file:', file.name);
-        await dmService.uploadFile(file, dmId);
+        console.log('📁 Uploading file to DM:', file.name);
+        await dmService.uploadFile(dmId, file);
       } else {
         // Send via WebSocket for real-time
-        sendMessage(dmId, content);
-        // Also send via HTTP for persistence (optional)
-        try {
-          await dmService.sendDMMessage(dmId, content);
-        } catch (httpError) {
-          console.warn('⚠️ HTTP message send failed, but WebSocket may have worked:', httpError);
-        }
+        await sendMessage({
+          room_id: dmId,
+          room_type: 'dm',
+          content: content,
+          reply_to: replyingTo?.id || null
+        });
       }
+
+      // Clear reply if set
+      if (replyingTo) {
+        setReplyingTo(null);
+      }
+
     } catch (error) {
       console.error("❌ Failed to send message:", error);
       setError("Failed to send message. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleReply = (message) => {
+    setReplyingTo(message);
+  };
+
+  const handleCancelReply = () => {
+    setReplyingTo(null);
+  };
+
+  const handleEditMessage = async (messageId, newContent) => {
+    try {
+      await messageService.editMessage(messageId, newContent);
+    } catch (error) {
+      console.error('Failed to edit message:', error);
+      throw error;
+    }
+  };
+
+  const handleDeleteMessage = async (messageId) => {
+    try {
+      await messageService.deleteMessage(messageId);
+    } catch (error) {
+      console.error('Failed to delete message:', error);
+      throw error;
+    }
+  };
+
+  const handleReact = async (messageId, reactionType) => {
+    try {
+      await messageService.addReaction(messageId, reactionType);
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+      throw error;
+    }
+  };
+
+  const handleRemoveReaction = async (messageId, reactionType) => {
+    try {
+      await messageService.removeReaction(messageId, reactionType);
+    } catch (error) {
+      console.error('Failed to remove reaction:', error);
+      throw error;
     }
   };
 
   const handleRetry = () => {
     loadDMData();
   };
+
+  // Get current DM messages (combine WebSocket and fallback)
+  const getCurrentMessages = () => {
+    const wsMessages = messages[dmId] || [];
+    if (wsMessages.length > 0) return wsMessages;
+    
+    // Fallback to API messages if WebSocket not populated yet
+    return dm?.messages || dm?.recent_messages || [];
+  };
+
+  // Get other user info
+  const getOtherUser = () => {
+    return dm?.other_user || dm?.participants?.find(p => p.id !== user?.id) || {};
+  };
+
+  const otherUser = getOtherUser();
 
   if (loading) {
     return (
@@ -127,54 +254,119 @@ export default function DirectMessages() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-900">
-      {/* DM header */}
-      <div className="bg-gray-800 border-b border-gray-700 px-6 py-3">
+    <div className="flex-1 flex flex-col bg-gray-900 h-full">
+      {/* DM Header */}
+      <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-            <h1 className="text-white font-semibold">
-              {dm?.other_user?.display_name || dm?.other_user?.email || 'Unknown User'}
-            </h1>
-            <div className="text-gray-400 text-sm">Direct message</div>
+          <div className="flex items-center space-x-4">
+            {/* User Avatar */}
+            <div className="relative">
+              {otherUser.profile_picture || otherUser.avatar ? (
+                <img 
+                  src={otherUser.profile_picture || otherUser.avatar} 
+                  alt={otherUser.display_name}
+                  className="w-10 h-10 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center text-white font-semibold">
+                  {otherUser.display_name?.charAt(0) || otherUser.email?.charAt(0) || 'U'}
+                </div>
+              )}
+              <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-gray-800 ${
+                otherUser.is_online ? 'bg-green-500' : 'bg-gray-500'
+              }`}></div>
+            </div>
+
+            <div>
+              <h1 className="text-white font-semibold text-lg">
+                {otherUser.display_name || otherUser.email || 'Unknown User'}
+              </h1>
+              <div className="flex items-center space-x-2 text-sm text-gray-400">
+                <span>Direct message</span>
+                <span>•</span>
+                <span className={otherUser.is_online ? 'text-green-400' : 'text-gray-500'}>
+                  {otherUser.is_online ? 'Online' : 'Offline'}
+                </span>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={handleRetry}
-            className="text-gray-400 hover:text-gray-300 text-sm"
-            title="Refresh messages"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-          </button>
+
+          <div className="flex items-center space-x-3">
+            {/* Connection Status */}
+            <div className="flex items-center space-x-2 text-sm">
+              <div className={`w-2 h-2 rounded-full ${
+                isRoomConnected(workspaceId, 'workspace') ? 'bg-green-500' : 'bg-red-500'
+              }`}></div>
+              <span className="text-gray-400">
+                {isRoomConnected(workspaceId, 'workspace') ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+
+            <button
+              onClick={handleRetry}
+              className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-gray-700 transition-colors"
+              title="Refresh messages"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Debug info - remove in production */}
-      <div className="bg-gray-800 border-b border-gray-700 px-4 py-2 text-xs text-gray-400">
-        <div className="flex justify-between">
-          <span>DM ID: {dmId}</span>
-          <span>Messages: {(messages[dmId] || []).length}</span>
-          <span>Status: {dm ? 'Loaded' : 'Not loaded'}</span>
+      {/* Reply Preview */}
+      {replyingTo && (
+        <div className="bg-gray-800 border-b border-gray-700 px-6 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2 text-sm text-gray-400">
+              <span>Replying to</span>
+              <span className="text-blue-400">
+                {replyingTo.user?.display_name || replyingTo.user?.email || 'User'}
+              </span>
+            </div>
+            <button
+              onClick={handleCancelReply}
+              className="text-gray-400 hover:text-white text-sm"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="text-gray-300 text-sm mt-1 truncate">
+            {replyingTo.content || 'Message'}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Messages area */}
-      <div className="flex-1 overflow-hidden">
-        <MessageList 
-          messages={messages[dmId] || []} 
-          roomId={dmId} 
-          fallbackMessages={dm?.messages || []}
-        />
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="space-y-4">
+          {getCurrentMessages().map((message, index) => (
+            <Message
+              key={message.id || `msg-${index}`}
+              message={message}
+              showAvatar={true}
+              onDelete={handleDeleteMessage}
+              onEdit={handleEditMessage}
+              onReact={handleReact}
+              onRemoveReaction={handleRemoveReaction}
+              onReply={handleReply}
+              onPin={() => console.log('Pin not available in DMs')}
+            />
+          ))}
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Message input */}
+      {/* Message Input */}
       <div className="border-t border-gray-700 p-4">
         <MessageInput
           onSendMessage={handleSendMessage}
-          onTyping={(isTyping) => sendTyping(dmId, isTyping)}
-          disabled={!!error}
+          onTyping={(isTyping) => sendTyping(dmId, isTyping, 'dm')}
+          disabled={!!error || sending}
+          replyingTo={replyingTo}
+          onCancelReply={handleCancelReply}
+          placeholder={`Message ${otherUser.display_name || otherUser.email || 'user'}`}
         />
       </div>
     </div>
