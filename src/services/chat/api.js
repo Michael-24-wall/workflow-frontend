@@ -1,4 +1,4 @@
-// services/chat/api.js - COMPLETE INTEGRATED VERSION
+// services/chat/api.js - COMPLETE FULL VERSION
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
 
 class ChatApiService {
@@ -103,10 +103,6 @@ class ChatApiService {
   // ORGANIZATION MEMBERS INTEGRATION FROM ZUSTAND STORE
   // =============================================================================
 
-  /**
-   * Get organization members from Zustand store
-   * This integrates with your existing auth store members data
-   */
   async getOrganizationMembers() {
     try {
       // First try to get from Zustand store if available
@@ -143,9 +139,6 @@ class ChatApiService {
     }
   }
 
-  /**
-   * Get organization member by ID
-   */
   async getOrganizationMember(userId) {
     try {
       const members = await this.getOrganizationMembers();
@@ -175,9 +168,6 @@ class ChatApiService {
     }
   }
 
-  /**
-   * Get current user from organization members
-   */
   async getCurrentOrganizationMember() {
     try {
       const token = this.getToken();
@@ -224,17 +214,11 @@ class ChatApiService {
     }
   }
 
-  /**
-   * Helper method to get Zustand auth store
-   */
   getAuthStore() {
-    // This is a placeholder - you'll need to import your actual Zustand store
-    // or access it through a global variable/window object
     if (typeof window !== 'undefined' && window.authStore) {
       return window.authStore;
     }
     
-    // Try to import dynamically (adjust path as needed)
     try {
       const authStoreModule = require('../../store/authStore');
       return authStoreModule.useAuthStore?.getState?.();
@@ -284,10 +268,8 @@ class ChatApiService {
 
   async getWorkspaceMembers(workspaceId) {
     try {
-      // First try workspace-specific members
       const response = await this.request(`/workspaces/${workspaceId}/members/`);
       
-      // If no workspace members found, fall back to organization members
       if (!response || response.length === 0) {
         console.log(`🔄 No workspace members found, using organization members for workspace ${workspaceId}`);
         return await this.getOrganizationMembers();
@@ -296,41 +278,35 @@ class ChatApiService {
       return response;
     } catch (error) {
       console.error(`Failed to get workspace ${workspaceId} members:`, error);
-      
-      // Fallback to organization members
       console.log(`🔄 Using organization members as fallback for workspace ${workspaceId}`);
       return await this.getOrganizationMembers();
     }
   }
 
-  async inviteToWorkspace(workspaceId, email) {
-    try {
-      // First check if user exists in organization
-      const orgMembers = await this.getOrganizationMembers();
-      const existingMember = orgMembers.find(m => m.email === email);
-      
-      if (existingMember) {
-        console.log(`✅ User ${email} already exists in organization, adding to workspace`);
-        // User exists in organization, add to workspace
-        const response = await this.request(`/workspaces/${workspaceId}/members/`, {
-          method: 'POST',
-          body: JSON.stringify({ user_id: existingMember.id })
-        });
-        return response;
-      } else {
-        // User doesn't exist, send invitation
-        console.log(`📧 User ${email} not in organization, sending invitation`);
-        const response = await this.request(`/workspaces/${workspaceId}/invite/`, {
-          method: 'POST',
-          body: JSON.stringify({ email })
-        });
-        return response;
-      }
-    } catch (error) {
-      console.error(`Failed to invite to workspace ${workspaceId}:`, error);
-      throw error;
-    }
+  async inviteToWorkspace(workspaceId, inviteData) {
+  try {
+    console.log('📧 Inviting to workspace:', { workspaceId, inviteData });
+    
+    const emailList = Array.isArray(inviteData) ? inviteData : (inviteData.emails || [inviteData]);
+    
+    // Set default expiration (7 days from now)
+    const expiresAt = inviteData.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    
+    const response = await this.request(`/workspaces/${workspaceId}/invite/`, {
+      method: 'POST',
+      body: JSON.stringify({ 
+        emails: emailList,
+        expires_at: expiresAt
+      }),
+    });
+    
+    console.log('✅ Workspace invitation sent:', response);
+    return response;
+  } catch (error) {
+    console.error('❌ Failed to invite to workspace:', error);
+    throw error;
   }
+}
 
   async removeMemberFromWorkspace(workspaceId, userId) {
     try {
@@ -357,6 +333,37 @@ class ChatApiService {
     }
   }
 
+  async getWorkspaceInvitations(workspaceId) {
+    try {
+      console.log('📥 Getting workspace invitations:', workspaceId);
+      
+      const response = await this.request(`/workspaces/${workspaceId}/invitations/`);
+      
+      console.log('✅ Retrieved workspace invitations:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to get workspace invitations:', error);
+      return [];
+    }
+  }
+
+  async cancelWorkspaceInvitation(workspaceId, invitationId) {
+    try {
+      console.log('❌ Cancelling workspace invitation:', { workspaceId, invitationId });
+      
+      const response = await this.request(`/workspaces/${workspaceId}/cancel_invitation/`, {
+        method: 'POST',
+        body: JSON.stringify({ invitation_id: invitationId }),
+      });
+      
+      console.log('✅ Workspace invitation cancelled');
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to cancel workspace invitation:', error);
+      throw error;
+    }
+  }
+
   // =============================================================================
   // ENHANCED CHANNEL METHODS WITH ORGANIZATION CONTEXT
   // =============================================================================
@@ -379,7 +386,6 @@ class ChatApiService {
     try {
       const channel = await this.request(`/channels/${channelId}/`);
       
-      // Enhance channel data with organization context
       if (channel && channel.workspace) {
         const orgMembers = await this.getOrganizationMembers();
         channel.organization_members_count = orgMembers.length;
@@ -409,7 +415,6 @@ class ChatApiService {
       
       const response = await this.request(endpoint);
       
-      // FIXED: Handle different response structures
       let messagesData = [];
       
       if (Array.isArray(response)) {
@@ -424,7 +429,6 @@ class ChatApiService {
         messagesData = [response];
       }
       
-      // Enhance messages with sender organization data
       const enhancedMessages = await Promise.all(
         messagesData.map(async (message) => {
           if (message.sender) {
@@ -451,25 +455,18 @@ class ChatApiService {
     }
   }
 
-  // =============================================================================
-  // CHANNEL CREATION & MANAGEMENT METHODS - CORRECTED
-  // =============================================================================
-
   async createChannel(channelData) {
     try {
       console.log('🚀 Creating channel:', channelData);
       
-      // CORRECTED: Match Django serializer field names exactly
       const payload = {
         name: channelData.name,
         topic: channelData.topic || '',
         purpose: channelData.purpose || '',
         channel_type: channelData.channel_type || 'public',
-        workspace: channelData.workspace, // Must match Django field name
-        is_private: channelData.is_private || false
+        workspace: channelData.workspace
       };
 
-      // Validate required fields
       if (!payload.name) {
         throw new Error('Channel name is required');
       }
@@ -496,7 +493,6 @@ class ChatApiService {
     try {
       console.log('✏️ Updating channel:', { channelId, channelData });
       
-      // CORRECTED: Only include fields that can be updated
       const payload = {
         name: channelData.name,
         topic: channelData.topic,
@@ -505,7 +501,6 @@ class ChatApiService {
         is_archived: channelData.is_archived
       };
       
-      // Remove undefined fields
       Object.keys(payload).forEach(key => {
         if (payload[key] === undefined) {
           delete payload[key];
@@ -547,6 +542,7 @@ class ChatApiService {
       
       const response = await this.request(`/channels/${channelId}/join/`, {
         method: 'POST',
+        body: JSON.stringify({}),
       });
       
       console.log('✅ Joined channel successfully');
@@ -563,6 +559,7 @@ class ChatApiService {
       
       const response = await this.request(`/channels/${channelId}/leave/`, {
         method: 'POST',
+        body: JSON.stringify({}),
       });
       
       console.log('✅ Left channel successfully');
@@ -611,7 +608,6 @@ class ChatApiService {
       
       const response = await this.request(`/channels/${channelId}/members/`);
       
-      // Enhance member data with organization information
       if (response && Array.isArray(response)) {
         const enhancedMembers = await Promise.all(
           response.map(async (member) => {
@@ -639,51 +635,59 @@ class ChatApiService {
     }
   }
 
-  async inviteToChannel(channelId, userIds) {
-    try {
-      console.log('📨 Inviting users to channel:', { channelId, userIds });
-      
-      // Verify users exist in organization before inviting
-      const orgMembers = await this.getOrganizationMembers();
-      const validUserIds = userIds.filter(userId => 
-        orgMembers.some(member => member.id === userId || member.user_id === userId)
+  // In the main ChatApiService class - FIXED VERSION
+async inviteToChannel(channelId, userIds) {
+  try {
+    console.log('📨 Inviting users to channel:', { channelId, userIds });
+    
+    // Handle both array and object format
+    const userArray = Array.isArray(userIds) ? userIds : (userIds.user_ids || []);
+    
+    console.log('👥 User IDs to invite:', userArray);
+    
+    // Get organization members to validate
+    const orgMembers = await this.getOrganizationMembers();
+    console.log('🏢 Organization members for validation:', orgMembers);
+    
+    // Check if we need to map user IDs or if they're already valid
+    const validUserIds = userArray.filter(userId => {
+      // Check if userId exists in organization members by any identifier
+      const isValid = orgMembers.some(member => 
+        member.id === userId || 
+        member.user_id === userId ||
+        member.email === userId ||
+        (member.user && member.user.id === userId)
       );
       
-      if (validUserIds.length !== userIds.length) {
-        console.warn(`⚠️ Some users not found in organization. Inviting only valid users:`, validUserIds);
+      if (!isValid) {
+        console.warn(`⚠️ User ${userId} not found in organization members`);
       }
       
-      const response = await this.request(`/channels/${channelId}/invite/`, {
-        method: 'POST',
-        body: JSON.stringify({ user_ids: validUserIds }),
-      });
-      
-      console.log('✅ Users invited successfully:', response);
-      return response;
-    } catch (error) {
-      console.error('❌ Failed to invite users:', error);
-      throw new Error(`Failed to invite users: ${error.message}`);
+      return isValid;
+    });
+    
+    console.log('✅ Valid user IDs after filtering:', validUserIds);
+    
+    if (validUserIds.length === 0) {
+      console.warn('⚠️ No valid user IDs found after filtering');
+      // Still send the request with original IDs - let the backend handle validation
+      console.log('🔄 Sending original user IDs to backend for validation');
     }
+    
+    const finalUserIds = validUserIds.length > 0 ? validUserIds : userArray;
+    
+    const response = await this.request(`/channels/${channelId}/invite/`, {
+      method: 'POST',
+      body: JSON.stringify({ user_ids: finalUserIds }),
+    });
+    
+    console.log('✅ Users invited successfully:', response);
+    return response;
+  } catch (error) {
+    console.error('❌ Failed to invite users:', error);
+    throw new Error(`Failed to invite users: ${error.message}`);
   }
-
-  async getChannelStatistics(channelId) {
-    try {
-      console.log('📊 Getting channel statistics:', channelId);
-      
-      const response = await this.request(`/channels/${channelId}/statistics/`);
-      
-      console.log('✅ Retrieved channel statistics:', response);
-      return response;
-    } catch (error) {
-      console.error('❌ Failed to get channel statistics:', error);
-      return {
-        total_messages: 0,
-        total_members: 0,
-        active_members: 0,
-        messages_today: 0
-      };
-    }
-  }
+}
 
   async transferChannelOwnership(channelId, newOwnerId) {
     try {
@@ -787,8 +791,26 @@ class ChatApiService {
     }
   }
 
+  async getChannelInviteSuggestions(channelId, searchQuery = '') {
+    try {
+      console.log('🔍 Getting channel invite suggestions:', { channelId, searchQuery });
+      
+      const endpoint = searchQuery 
+        ? `/channels/${channelId}/invite_suggestions/?search=${encodeURIComponent(searchQuery)}`
+        : `/channels/${channelId}/invite_suggestions/`;
+      
+      const response = await this.request(endpoint);
+      
+      console.log('✅ Retrieved channel invite suggestions:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to get channel invite suggestions:', error);
+      return [];
+    }
+  }
+
   // =============================================================================
-  // ENHANCED MESSAGE METHODS
+  // ENHANCED MESSAGE METHODS - CORRECTED FOR DJANGO SERIALIZERS
   // =============================================================================
 
   async sendChannelMessage(channelId, content, messageType = 'text', replyTo = null) {
@@ -800,9 +822,6 @@ class ChatApiService {
         replyTo 
       });
       
-      // Get current user for enhanced message data
-      const currentMember = await this.getCurrentOrganizationMember();
-      
       const messageData = {
         channel: parseInt(channelId),
         content: content,
@@ -813,16 +832,7 @@ class ChatApiService {
         messageData.reply_to = parseInt(replyTo);
       }
       
-      // Add sender organization context if available
-      if (currentMember) {
-        messageData.sender_organization_context = {
-          user_id: currentMember.id,
-          display_name: currentMember.display_name,
-          role: currentMember.role
-        };
-      }
-      
-      console.log('📝 Enhanced message data:', messageData);
+      console.log('📝 Final message data for Django:', messageData);
       
       const response = await this.request('/messages/', {
         method: 'POST',
@@ -841,9 +851,25 @@ class ChatApiService {
   async sendMessage(data) {
     try {
       console.log('📤 Sending generic message:', data);
+      
+      const validatedData = {
+        content: data.content,
+        message_type: data.message_type || 'text',
+        room: data.room || null,
+        channel: data.channel || null,
+        direct_message: data.direct_message || null,
+        reply_to: data.reply_to || null
+      };
+      
+      Object.keys(validatedData).forEach(key => {
+        if (validatedData[key] === null) {
+          delete validatedData[key];
+        }
+      });
+      
       const response = await this.request('/messages/', {
         method: 'POST',
-        body: JSON.stringify(data),
+        body: JSON.stringify(validatedData),
       });
       return response;
     } catch (error) {
@@ -920,7 +946,7 @@ class ChatApiService {
   async removeReaction(messageId, reactionType) {
     try {
       console.log('🗑️ Removing reaction:', { messageId, reactionType });
-      const response = await this.request(`/messages/${messageId}/react/`, {
+      const response = await this.request(`/messages/${messageId}/remove_reaction/`, {
         method: 'DELETE',
         body: JSON.stringify({ reaction_type: reactionType }),
       });
@@ -1008,7 +1034,7 @@ class ChatApiService {
   }
 
   // =============================================================================
-  // DIRECT MESSAGE METHODS
+  // DIRECT MESSAGE METHODS - CORRECTED FOR DJANGO VIEWS
   // =============================================================================
 
   async getDirectMessages() {
@@ -1021,23 +1047,21 @@ class ChatApiService {
     }
   }
 
-  async startDirectMessage(userId) {
+  async startDirectMessage(userId, workspaceId = null) {
     try {
+      const payload = { user_id: userId };
+      if (workspaceId) {
+        payload.workspace = workspaceId;
+      }
+      
       const dm = await this.request('/direct-messages/start/', {
         method: 'POST',
-        body: JSON.stringify({ user_id: userId }),
+        body: JSON.stringify(payload),
       });
       return dm;
     } catch (error) {
       console.error('Failed to start direct message:', error);
-      return { 
-        id: `dm-${userId}`, 
-        other_user: { 
-          id: userId, 
-          email: 'user@example.com',
-          display_name: 'User'
-        }
-      };
+      throw error;
     }
   }
 
@@ -1056,15 +1080,155 @@ class ChatApiService {
     }
   }
 
-  async sendDMMessage(dmId, content, messageType = 'text') {
+  // FIXED: Correct DM message sending
+async sendDMMessage(dmId, content, messageType = 'text') {
+  try {
+    console.log('📤 Sending DM message:', { dmId, content, messageType });
+    
+    // OPTION 1: Use the general messages endpoint with direct_message context
+    const response = await this.request('/messages/', {
+      method: 'POST',
+      body: JSON.stringify({
+        direct_message: parseInt(dmId), // This is the key field
+        content: content,
+        message_type: messageType
+      }),
+    });
+    
+    console.log('✅ DM message sent successfully:', response);
+    return response;
+    
+  } catch (error) {
+    console.error('❌ Failed to send DM message:', error);
+    
+    // OPTION 2: Fallback to DM-specific endpoint with different payload
     try {
-      const response = await this.request(`/direct-messages/${dmId}/message/`, {
+      console.log('🔄 Trying DM-specific endpoint as fallback');
+      const fallbackResponse = await this.request(`/direct-messages/${dmId}/send_message/`, {
         method: 'POST',
-        body: JSON.stringify({ content, message_type: messageType }),
+        body: JSON.stringify({ 
+          content, 
+          message_type: messageType,
+          // Try adding direct_message field here too
+          direct_message: parseInt(dmId)
+        }),
       });
+      return fallbackResponse;
+    } catch (fallbackError) {
+      console.error('❌ Fallback method also failed:', fallbackError);
+      throw error; // Throw original error
+    }
+  }
+}
+
+  async startDirectMessageWithWorkspace(workspaceId, userId) {
+    try {
+      console.log('🚀 Starting DM with workspace context:', { workspaceId, userId });
+      
+      const response = await this.request('/direct-messages/start_with_workspace/', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspace: workspaceId,
+          user_id: userId
+        }),
+      });
+      
+      console.log('✅ DM started with workspace:', response);
       return response;
     } catch (error) {
-      console.error('Failed to send DM message:', error);
+      console.error('❌ Failed to start DM with workspace:', error);
+      throw error;
+    }
+  }
+
+  async getWorkspaceDMs(workspaceId) {
+    try {
+      console.log('📥 Fetching workspace DMs:', workspaceId);
+      
+      const response = await this.request(`/direct-messages/workspace_dms/?workspace_id=${workspaceId}`);
+      
+      console.log(`✅ Retrieved ${response.length} workspace DMs`);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to get workspace DMs:', error);
+      return [];
+    }
+  }
+
+  async markDMAsRead(dmId) {
+    try {
+      console.log('📖 Marking DM as read:', dmId);
+      
+      const response = await this.request(`/direct-messages/${dmId}/mark_read/`, {
+        method: 'POST',
+      });
+      
+      console.log('✅ DM marked as read:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to mark DM as read:', error);
+      throw error;
+    }
+  }
+
+  async getDMStatistics(dmId) {
+    try {
+      console.log('📊 Getting DM statistics:', dmId);
+      
+      const response = await this.request(`/direct-messages/${dmId}/statistics/`);
+      
+      console.log('✅ DM statistics:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to get DM statistics:', error);
+      return null;
+    }
+  }
+
+  async searchDMMessages(dmId, query) {
+    try {
+      console.log('🔍 Searching DM messages:', { dmId, query });
+      
+      const response = await this.request(`/direct-messages/${dmId}/search/?q=${encodeURIComponent(query)}`);
+      
+      console.log(`✅ Found ${response.length} search results`);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to search DM messages:', error);
+      return [];
+    }
+  }
+
+  async uploadDMFile(dmId, file) {
+    try {
+      console.log('📤 Uploading file to DM:', { dmId, fileName: file.name });
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const url = `${this.baseURL}/direct-messages/${dmId}/upload_file/`;
+      const token = this.getToken();
+      
+      const config = {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      };
+      
+      const response = await fetch(url, config);
+      
+      if (!response.ok) {
+        throw new Error(`Upload failed: ${response.status}`);
+      }
+      
+      const result = await response.json();
+      console.log('✅ DM file uploaded successfully:', result);
+      return result;
+      
+    } catch (error) {
+      console.error('❌ Failed to upload DM file:', error);
       throw error;
     }
   }
@@ -1164,14 +1328,10 @@ class ChatApiService {
   // ORGANIZATION-LEVEL CHAT MANAGEMENT
   // =============================================================================
 
-  /**
-   * Get all organization members available for chat
-   */
   async getAvailableChatMembers() {
     try {
       const orgMembers = await this.getOrganizationMembers();
       
-      // Filter active members and enhance with chat availability
       const availableMembers = orgMembers
         .filter(member => member.is_active !== false)
         .map(member => ({
@@ -1189,9 +1349,6 @@ class ChatApiService {
     }
   }
 
-  /**
-   * Search organization members for chat
-   */
   async searchChatMembers(query) {
     try {
       const members = await this.getAvailableChatMembers();
@@ -1211,9 +1368,6 @@ class ChatApiService {
     }
   }
 
-  /**
-   * Get member chat preferences and settings
-   */
   async getMemberChatSettings(userId) {
     try {
       const member = await this.getOrganizationMember(userId);
@@ -1240,36 +1394,124 @@ class ChatApiService {
   }
 
   // =============================================================================
-  // FALLBACK DATA
+  // PUSH NOTIFICATION METHODS
   // =============================================================================
 
-  getFallbackData(endpoint) {
-    const fallbacks = {
-      '/workspaces/': {
-        count: 0,
-        results: []
-      },
-      '/channels/': [],
-      '/rooms/': [],
-      '/direct-messages/': [],
-      '/health/': { status: 'ok', mode: 'fallback' }
-    };
-    
-    if (endpoint.startsWith('/workspaces/') && endpoint !== '/workspaces/') {
-      const workspaceId = endpoint.split('/').filter(Boolean)[1];
-      return {
-        id: workspaceId,
-        name: `Workspace ${workspaceId}`,
-        description: 'Team workspace'
-      };
-    }
-    
-    return fallbacks[endpoint] || null;
+  async registerDevice(deviceData) {
+    return this.request('/user-devices/', {
+      method: 'POST',
+      body: JSON.stringify(deviceData)
+    });
+  }
+
+  async getUserDevices() {
+    return this.request('/user-devices/');
+  }
+
+  async deactivateDevice(deviceId) {
+    return this.request(`/user-devices/${deviceId}/deactivate/`, {
+      method: 'POST'
+    });
+  }
+
+  async getNotifications() {
+    return this.request('/push-notifications/');
+  }
+
+  async getNotification(notificationId) {
+    return this.request(`/push-notifications/${notificationId}/`);
+  }
+
+  async markNotificationRead(notificationId) {
+    return this.request(`/push-notifications/${notificationId}/mark_read/`, {
+      method: 'POST'
+    });
+  }
+
+  async markAllNotificationsRead() {
+    return this.request('/push-notifications/mark_all_read/', {
+      method: 'POST'
+    });
+  }
+
+  async getUnreadCount() {
+    return this.request('/push-notifications/unread_count/');
+  }
+
+  async getNotificationPreferences() {
+    return this.request('/notification-preferences/');
+  }
+
+  async updateNotificationPreference(preferenceData) {
+    return this.request('/notification-preferences/', {
+      method: 'POST',
+      body: JSON.stringify(preferenceData)
+    });
+  }
+
+  async getMyPreferences() {
+    return this.request('/notification-preferences/my_preferences/');
+  }
+
+  async getFCMConfig() {
+    return this.request('/fcm-config/');
   }
 
   // =============================================================================
-  // DEBUG METHODS
+  // SEARCH METHODS
   // =============================================================================
+
+  async searchMessages(query, filters = {}) {
+    return this.request('/search/messages/', {
+      method: 'POST',
+      body: JSON.stringify({ query, ...filters })
+    });
+  }
+
+  async globalSearch(query) {
+    return this.request(`/search/global/?q=${encodeURIComponent(query)}`);
+  }
+
+  // =============================================================================
+  // UTILITY METHODS
+  // =============================================================================
+
+  async getHealth() {
+    return this.request('/health/');
+  }
+
+  async getWebSocketToken() {
+    return this.request('/websocket/token/');
+  }
+
+  async testDMEndpoints() {
+    const testEndpoints = [
+      '/direct-messages/',
+      '/direct-messages/start/',
+      '/direct-messages/1/messages/',
+      '/direct-messages/1/send_message/',
+      '/direct-messages/start_with_workspace/',
+      '/direct-messages/workspace_dms/',
+      '/messages/'
+    ];
+    
+    console.log('🔍 Testing DM endpoints...');
+    
+    for (const endpoint of testEndpoints) {
+      try {
+        const method = endpoint.includes('start') || endpoint.includes('send_message') ? 'POST' : 'GET';
+        const options = method === 'POST' ? { 
+          method: 'POST', 
+          body: JSON.stringify({ user_id: 1, content: 'test' }) 
+        } : {};
+        
+        await this.request(endpoint, options);
+        console.log(`✅ ${endpoint}: ACCESSIBLE`);
+      } catch (error) {
+        console.log(`❌ ${endpoint}: ${error.message}`);
+      }
+    }
+  }
 
   async debugEndpoints() {
     const testEndpoints = [
@@ -1294,21 +1536,74 @@ class ChatApiService {
       }
     }
   }
+
+  getFallbackData(endpoint) {
+    const fallbacks = {
+      '/workspaces/': {
+        count: 0,
+        results: []
+      },
+      '/channels/': [],
+      '/rooms/': [],
+      '/direct-messages/': [],
+      '/health/': { status: 'ok', mode: 'fallback' }
+    };
+    
+    if (endpoint.startsWith('/workspaces/') && endpoint !== '/workspaces/') {
+      const workspaceId = endpoint.split('/').filter(Boolean)[1];
+      return {
+        id: workspaceId,
+        name: `Workspace ${workspaceId}`,
+        description: 'Team workspace'
+      };
+    }
+    
+    return fallbacks[endpoint] || null;
+  }
 }
 
 // Create singleton instance
 const chatApiService = new ChatApiService();
 
-// Export ALL services with enhanced organization integration
+// =============================================================================
+// COMPREHENSIVE SERVICE EXPORTS - ALL FEATURES
+// =============================================================================
+
+// Workspace Service
+// Workspace Service - FIXED VERSION
 export const workspaceService = {
   // Basic workspace operations
   getWorkspaces: () => chatApiService.getWorkspaces(),
   getWorkspace: (id) => chatApiService.getWorkspace(id),
   getWorkspaceChannels: (workspaceId) => chatApiService.getWorkspaceChannels(workspaceId),
+
+  createWorkspace: async (workspaceData) => {
+    try {
+      console.log('🚀 Creating workspace:', workspaceData);
+      
+      const response = await chatApiService.request('/workspaces/', {
+        method: 'POST',
+        body: JSON.stringify(workspaceData),
+      });
+      
+      console.log('✅ Workspace created successfully:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to create workspace:', error);
+      
+      // Provide more specific error messages
+      if (error.message.includes('400')) {
+        throw new Error('Invalid workspace data. Please check the name and subdomain.');
+      } else if (error.message.includes('409')) {
+        throw new Error('A workspace with this name or subdomain already exists.');
+      } else {
+        throw new Error(`Failed to create workspace: ${error.message}`);
+      }
+    }
+  },
   
-  // Workspace member management with organization integration
+  // Workspace member management
   getWorkspaceMembers: (workspaceId) => chatApiService.getWorkspaceMembers(workspaceId),
-  inviteToWorkspace: (workspaceId, email) => chatApiService.inviteToWorkspace(workspaceId, email),
   removeMemberFromWorkspace: (workspaceId, userId) => chatApiService.removeMemberFromWorkspace(workspaceId, userId),
   updateMemberRole: (workspaceId, userId, role) => chatApiService.updateMemberRole(workspaceId, userId, role),
   
@@ -1318,9 +1613,21 @@ export const workspaceService = {
   getCurrentOrganizationMember: () => chatApiService.getCurrentOrganizationMember(),
   getAvailableChatMembers: () => chatApiService.getAvailableChatMembers(),
   searchChatMembers: (query) => chatApiService.searchChatMembers(query),
-  getMemberChatSettings: (userId) => chatApiService.getMemberChatSettings(userId)
+  getMemberChatSettings: (userId) => chatApiService.getMemberChatSettings(userId),
+  
+  // Invitation methods - FIXED: Use the instance method
+  inviteToWorkspace: (workspaceId, emails) => chatApiService.inviteToWorkspace(workspaceId, emails),
+  getWorkspaceInvitations: (workspaceId) => chatApiService.getWorkspaceInvitations(workspaceId),
+  cancelWorkspaceInvitation: (workspaceId, invitationId) => chatApiService.cancelWorkspaceInvitation(workspaceId, invitationId),
+  
+  // Remove these problematic methods or fix them:
+  getMyWorkspaceInvitations: () => chatApiService.request('/workspaces/my_workspace_invitations/'),
+  acceptWorkspaceInvitation: (workspaceId) => chatApiService.request(`/workspaces/${workspaceId}/accept_invitation/`, { method: 'POST' }),
+  declineWorkspaceInvitation: (workspaceId) => chatApiService.request(`/workspaces/${workspaceId}/decline_invitation/`, { method: 'POST' }),
+  getWorkspaceInvitationSuggestions: (workspaceId) => chatApiService.request(`/workspaces/${workspaceId}/invitation_suggestions/`),
 };
-
+// Channel Service
+// Channel Service - FIXED VERSION
 export const channelService = {
   // Basic channel operations
   getChannels: (workspaceId) => chatApiService.getChannels(workspaceId),
@@ -1328,7 +1635,7 @@ export const channelService = {
   getChannelMessages: (id, params) => chatApiService.getChannelMessages(id, params),
   sendChannelMessage: (channelId, content, messageType, replyTo) => chatApiService.sendChannelMessage(channelId, content, messageType, replyTo),
   
-  // Channel creation & management - CORRECTED
+  // Channel creation & management
   createChannel: (channelData) => chatApiService.createChannel(channelData),
   updateChannel: (channelId, channelData) => chatApiService.updateChannel(channelId, channelData),
   deleteChannel: (channelId) => chatApiService.deleteChannel(channelId),
@@ -1337,7 +1644,6 @@ export const channelService = {
   joinChannel: (channelId) => chatApiService.joinChannel(channelId),
   leaveChannel: (channelId) => chatApiService.leaveChannel(channelId),
   getChannelMembers: (channelId) => chatApiService.getChannelMembers(channelId),
-  inviteToChannel: (channelId, userIds) => chatApiService.inviteToChannel(channelId, userIds),
   updateChannelMemberRole: (channelId, userId, role) => chatApiService.updateChannelMemberRole(channelId, userId, role),
   removeMemberFromChannel: (channelId, userId) => chatApiService.removeMemberFromChannel(channelId, userId),
   
@@ -1350,21 +1656,80 @@ export const channelService = {
   // Channel moderation
   banUserFromChannel: (channelId, userId, reason, durationDays) => chatApiService.banUserFromChannel(channelId, userId, reason, durationDays),
   unbanUserFromChannel: (channelId, userId) => chatApiService.unbanUserFromChannel(channelId, userId),
-  getBannedUsers: (channelId) => chatApiService.getBannedUsers(channelId)
+  getBannedUsers: (channelId) => chatApiService.getBannedUsers(channelId),
+  
+  // Invitation methods - FIXED: Use the enhanced inviteToChannel
+  inviteToChannel: (channelId, data) => {
+    console.log('🌐 Sending invite request:', {
+      channelId,
+      data,
+      endpoint: `/channels/${channelId}/invite/`
+    });
+    
+    // Handle different data formats
+    let user_ids;
+    if (Array.isArray(data)) {
+      user_ids = data;
+    } else if (data.user_ids) {
+      user_ids = data.user_ids;
+    } else if (data.selectedUsers) {
+      user_ids = data.selectedUsers;
+    } else {
+      user_ids = [];
+    }
+    
+    console.log('📨 Final user IDs being sent:', user_ids);
+    
+    const requestData = {
+      user_ids: user_ids
+    };
+    
+    return chatApiService.request(`/channels/${channelId}/invite/`, {
+      method: 'POST',
+      body: JSON.stringify(requestData)
+    });
+  },
+  
+  getChannelInviteSuggestions: (channelId, searchQuery) => chatApiService.getChannelInviteSuggestions(channelId, searchQuery),
+  getMyInvitations: () => chatApiService.request('/channels/my_invitations/'),
+  
+  acceptInvitation: (channelId) => 
+    chatApiService.request(`/channels/${channelId}/accept_invitation/`, {
+      method: 'POST'
+    }),
+  
+  declineInvitation: (channelId) => 
+    chatApiService.request(`/channels/${channelId}/decline_invitation/`, {
+      method: 'POST'
+    }),
+  
+  getInvitationStatus: (channelId) => 
+    chatApiService.request(`/channels/${channelId}/invitation_status/`),
+};
+// Direct Message Service
+export const dmService = {
+  // Basic DM operations
+  getDirectMessages: () => chatApiService.getDirectMessages(),
+  startDirectMessage: (userId, workspaceId) => chatApiService.startDirectMessage(userId, workspaceId),
+  getDMMessages: (dmId, params) => chatApiService.getDMMessages(dmId, params),
+  sendDMMessage: (dmId, content) => chatApiService.sendDMMessage(dmId, content),
+  
+  // Enhanced DM methods
+  startDirectMessageWithWorkspace: (workspaceId, userId) => chatApiService.startDirectMessageWithWorkspace(workspaceId, userId),
+  getWorkspaceDMs: (workspaceId) => chatApiService.getWorkspaceDMs(workspaceId),
+  markDMAsRead: (dmId) => chatApiService.markDMAsRead(dmId),
+  getDMStatistics: (dmId) => chatApiService.getDMStatistics(dmId),
+  searchDMMessages: (dmId, query) => chatApiService.searchDMMessages(dmId, query),
+  uploadDMFile: (dmId, file) => chatApiService.uploadDMFile(dmId, file)
 };
 
+// Room Service
 export const roomService = {
   getRooms: () => chatApiService.getRooms(),
   getRoomMessages: (id, params) => chatApiService.getRoomMessages(id, params)
 };
 
-export const dmService = {
-  getDirectMessages: () => chatApiService.getDirectMessages(),
-  startDirectMessage: (userId) => chatApiService.startDirectMessage(userId),
-  getDMMessages: (dmId, params) => chatApiService.getDMMessages(dmId, params),
-  sendDMMessage: (dmId, content) => chatApiService.sendDMMessage(dmId, content)
-};
-
+// Message Service
 export const messageService = {
   // Core message methods
   sendMessage: (data) => chatApiService.sendMessage(data),
@@ -1384,18 +1749,53 @@ export const messageService = {
   pinMessage: (messageId) => chatApiService.pinMessage(messageId),
   unpinMessage: (messageId) => chatApiService.unpinMessage(messageId),
   getPinnedMessages: (channelId) => chatApiService.getPinnedMessages(channelId),
-  
-  // File methods
-  uploadFile: (file, channelId, description) => chatApiService.uploadFile(file, channelId, description)
 };
 
+// File Service
 export const fileService = {
   uploadFile: (file, channelId, description) => chatApiService.uploadFile(file, channelId, description)
 };
 
-// Export debug methods
-export const debugService = {
-  debugEndpoints: () => chatApiService.debugEndpoints()
+// Push Notification Service
+export const pushNotificationService = {
+  // User Devices
+  registerDevice: (deviceData) => chatApiService.registerDevice(deviceData),
+  getUserDevices: () => chatApiService.getUserDevices(),
+  deactivateDevice: (deviceId) => chatApiService.deactivateDevice(deviceId),
+
+  // Notifications
+  getNotifications: () => chatApiService.getNotifications(),
+  getNotification: (notificationId) => chatApiService.getNotification(notificationId),
+  markNotificationRead: (notificationId) => chatApiService.markNotificationRead(notificationId),
+  markAllNotificationsRead: () => chatApiService.markAllNotificationsRead(),
+  getUnreadCount: () => chatApiService.getUnreadCount(),
+
+  // Preferences
+  getNotificationPreferences: () => chatApiService.getNotificationPreferences(),
+  updateNotificationPreference: (preferenceData) => chatApiService.updateNotificationPreference(preferenceData),
+  getMyPreferences: () => chatApiService.getMyPreferences(),
+
+  // Configuration
+  getFCMConfig: () => chatApiService.getFCMConfig()
 };
 
+// Search Service
+export const searchService = {
+  searchMessages: (query, filters) => chatApiService.searchMessages(query, filters),
+  globalSearch: (query) => chatApiService.globalSearch(query)
+};
+
+// Utility Service
+export const utilityService = {
+  getHealth: () => chatApiService.getHealth(),
+  getWebSocketToken: () => chatApiService.getWebSocketToken()
+};
+
+// Debug Service
+export const debugService = {
+  debugEndpoints: () => chatApiService.debugEndpoints(),
+  testDMEndpoints: () => chatApiService.testDMEndpoints()
+};
+
+// Default export
 export default chatApiService;

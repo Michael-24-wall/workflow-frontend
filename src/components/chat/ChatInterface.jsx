@@ -9,6 +9,8 @@ import DirectMessageList from './DirectMessageList';
 import DirectMessageChat from './DirectMessageChat';
 import OrganizationMembersList from './OrganizationMembersList';
 import ChatMembersSidebar from './ChatMembersSidebar';
+import WorkspaceInviteModal from './WorkspaceInviteModal';
+import ChannelInviteModal from './ChannelInviteModal';
 
 export default function ChatInterface() {
   const { workspaceId, channelId, dmId } = useParams();
@@ -23,6 +25,9 @@ export default function ChatInterface() {
   const [activeView, setActiveView] = useState('channels'); // 'channels' or 'dms'
   const [showMembersSidebar, setShowMembersSidebar] = useState(false);
   const [showOrganizationMembers, setShowOrganizationMembers] = useState(false);
+  const [showWorkspaceInviteModal, setShowWorkspaceInviteModal] = useState(false);
+  const [showChannelInviteModal, setShowChannelInviteModal] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const [error, setError] = useState(null);
 
   // Load workspace data and organization members
@@ -44,7 +49,9 @@ export default function ChatInterface() {
         setChannels(Array.isArray(channelsData) ? channelsData : []);
         setDirectMessages(Array.isArray(dmData) ? dmData : []);
         setOrganizationMembers(Array.isArray(orgMembersData) ? orgMembersData : []);
+        setUserRole(workspaceData.user_role);
 
+        console.log(`✅ Loaded workspace: ${workspaceData.name}, User role: ${workspaceData.user_role}`);
         console.log(`✅ Loaded ${orgMembersData.length} organization members`);
 
       } catch (error) {
@@ -120,6 +127,39 @@ export default function ChatInterface() {
     }
   };
 
+  const handleWorkspaceInvite = async (emails) => {
+    try {
+      const result = await workspaceService.inviteToWorkspace(workspaceId, emails);
+      console.log('Workspace invitation result:', result);
+      
+      // Refresh organization members to show new invites
+      refreshOrganizationMembers();
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to invite to workspace:', error);
+      throw error;
+    }
+  };
+
+  const handleChannelInvite = async (userIds) => {
+    try {
+      const result = await channelService.inviteToChannel(channelId, userIds);
+      console.log('Channel invitation result:', result);
+      
+      // Refresh channel data to show new members
+      if (channelId) {
+        const updatedChannel = await channelService.getChannel(channelId);
+        // You might want to update the channel in your state here
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Failed to invite to channel:', error);
+      throw error;
+    }
+  };
+
   const refreshOrganizationMembers = async () => {
     try {
       const members = await workspaceService.getOrganizationMembers();
@@ -129,6 +169,21 @@ export default function ChatInterface() {
       console.error('Failed to refresh organization members:', error);
     }
   };
+
+  const refreshChannels = async () => {
+    try {
+      const channelsData = await channelService.getChannels(workspaceId);
+      setChannels(Array.isArray(channelsData) ? channelsData : []);
+    } catch (error) {
+      console.error('Failed to refresh channels:', error);
+    }
+  };
+
+  // Check if user can invite to workspace (owner or admin)
+  const canInviteToWorkspace = userRole && ['owner', 'admin'].includes(userRole);
+  
+  // Check if user can invite to current channel (admin or moderator)
+  const canInviteToChannel = channelId && userRole && ['owner', 'admin', 'moderator'].includes(userRole);
 
   if (loading) {
     return (
@@ -171,7 +226,7 @@ export default function ChatInterface() {
       <div className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
         {/* Workspace Header */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 mb-3">
             <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
               <span className="text-white font-semibold text-lg">💬</span>
             </div>
@@ -182,12 +237,17 @@ export default function ChatInterface() {
               <p className="text-sm text-gray-500 truncate">
                 {workspace?.description || 'Team workspace'}
               </p>
+              {userRole && (
+                <span className="inline-block mt-1 px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded capitalize">
+                  {userRole}
+                </span>
+              )}
             </div>
           </div>
 
           {/* Organization Members Info */}
-          <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
-            <div className="flex items-center justify-between">
+          <div className="p-3 bg-white rounded-lg border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
               <div>
                 <p className="text-sm font-medium text-gray-900">
                   {organizationMembers.length} Members
@@ -212,6 +272,17 @@ export default function ChatInterface() {
                 </button>
               </div>
             </div>
+
+            {/* Workspace Invite Button */}
+            {canInviteToWorkspace && (
+              <button
+                onClick={() => setShowWorkspaceInviteModal(true)}
+                className="w-full mt-2 bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm font-medium flex items-center justify-center space-x-2"
+              >
+                <span>+</span>
+                <span>Invite to Workspace</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -282,16 +353,28 @@ export default function ChatInterface() {
 
         {/* Quick Actions Footer */}
         <div className="p-3 border-t border-gray-200 bg-white">
-          <div className="flex space-x-2">
+          <div className="space-y-2">
             <button
               onClick={() => setShowMembersSidebar(true)}
-              className="flex-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded text-sm font-medium"
             >
               View Members
             </button>
+            
+            {/* Channel Invite Button - Only show when a channel is selected */}
+            {canInviteToChannel && (
+              <button
+                onClick={() => setShowChannelInviteModal(true)}
+                className="w-full bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded text-sm font-medium flex items-center justify-center space-x-2"
+              >
+                <span>+</span>
+                <span>Invite to Channel</span>
+              </button>
+            )}
+            
             <button
               onClick={() => setShowOrganizationMembers(true)}
-              className="flex-1 bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm font-medium"
+              className="w-full bg-gray-500 hover:bg-gray-600 text-white px-3 py-2 rounded text-sm font-medium"
             >
               All Members
             </button>
@@ -306,6 +389,7 @@ export default function ChatInterface() {
             workspaceId={workspaceId} 
             channelId={channelId} 
             onShowMembers={() => setShowMembersSidebar(true)}
+            onShowInvite={() => setShowChannelInviteModal(true)}
           />
         ) : dmId ? (
           <DirectMessageChat 
@@ -340,6 +424,14 @@ export default function ChatInterface() {
                 >
                   Browse Organization Members ({organizationMembers.length})
                 </button>
+                {canInviteToWorkspace && (
+                  <button
+                    onClick={() => setShowWorkspaceInviteModal(true)}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium"
+                  >
+                    Invite People to Workspace
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -354,6 +446,21 @@ export default function ChatInterface() {
         onClose={() => setShowMembersSidebar(false)}
         onStartDM={handleStartDM}
         onInviteToChannel={handleInviteToChannel}
+      />
+
+      {/* Invitation Modals */}
+      <WorkspaceInviteModal
+        workspace={workspace}
+        isOpen={showWorkspaceInviteModal}
+        onClose={() => setShowWorkspaceInviteModal(false)}
+        onInviteSent={handleWorkspaceInvite}
+      />
+
+      <ChannelInviteModal
+        channel={channels.find(c => c.id === parseInt(channelId))}
+        isOpen={showChannelInviteModal}
+        onClose={() => setShowChannelInviteModal(false)}
+        onInviteSent={handleChannelInvite}
       />
     </div>
   );

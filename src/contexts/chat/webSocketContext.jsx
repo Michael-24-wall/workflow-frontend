@@ -443,19 +443,8 @@ export function WebSocketProvider({ children }) {
           delete reconnectTimeoutsRef.current[key];
         }
 
-        // Send authentication message after a brief delay
-        setTimeout(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            const authMessage = {
-              type: 'authenticate',
-              token: token,
-              user_id: currentUser?.id,
-              email: currentUser?.email
-            };
-            console.log('🔐 Sending WebSocket authentication...');
-            ws.send(JSON.stringify(authMessage));
-          }
-        }, 100);
+        // 🚨 REMOVED: Authentication message sending - server authenticates via URL token
+        console.log('🔐 Authentication handled via URL token, no need for authenticate message');
       };
 
       ws.onmessage = (event) => {
@@ -529,19 +518,7 @@ export function WebSocketProvider({ children }) {
 
               case 'error':
                 console.error('❌ WebSocket error:', data.message);
-                if (data.message.includes('auth') || data.message.includes('token')) {
-                  console.error('🔐 Authentication error, closing connection');
-                  ws.close(1008, 'Authentication failed');
-                }
-                break;
-                
-              case 'authentication_result':
-                if (data.success) {
-                  console.log('✅ WebSocket authentication successful');
-                } else {
-                  console.error('❌ WebSocket authentication failed:', data.message);
-                  ws.close(1008, 'Authentication failed');
-                }
+                // 🚨 REMOVED: Specific authentication error handling since we're not sending auth messages
                 break;
 
               case 'ping':

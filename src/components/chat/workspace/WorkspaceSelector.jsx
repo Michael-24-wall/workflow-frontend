@@ -1,11 +1,15 @@
+// components/chat/WorkspaceSelector.jsx
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { workspaceService } from '../../../services/chat/api';
+import WorkspaceInviteModal from '../WorkspaceInviteModal';
 
 export default function WorkspaceSelector() {
   const [workspaces, setWorkspaces] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [selectedWorkspace, setSelectedWorkspace] = useState(null);
   const [newWorkspace, setNewWorkspace] = useState({ name: '', subdomain: '' });
   const [error, setError] = useState('');
   const navigate = useNavigate();
@@ -14,7 +18,6 @@ export default function WorkspaceSelector() {
     loadWorkspaces();
   }, []);
 
-  // Simplified authentication check
   const isAuthenticated = () => {
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -22,7 +25,6 @@ export default function WorkspaceSelector() {
       return false;
     }
     
-    // Basic token validation
     try {
       const parts = token.split('.');
       if (parts.length !== 3) {
@@ -42,7 +44,6 @@ export default function WorkspaceSelector() {
       setError('');
       console.log('🔄 Loading workspaces...');
       
-      // Check authentication first
       if (!isAuthenticated()) {
         setError('Please login to access workspaces');
         setTimeout(() => navigate('/login'), 2000);
@@ -53,7 +54,6 @@ export default function WorkspaceSelector() {
       const data = await workspaceService.getWorkspaces();
       console.log('✅ Workspaces loaded:', data);
       
-      // Handle both array and object responses
       if (Array.isArray(data)) {
         setWorkspaces(data);
       } else if (data && Array.isArray(data.results)) {
@@ -77,7 +77,6 @@ export default function WorkspaceSelector() {
     
     if (errorMessage.includes('401') || errorMessage.includes('Authentication')) {
       setError('Session expired. Please login again.');
-      // Clear tokens and redirect
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       localStorage.removeItem('chat_token');
@@ -95,7 +94,6 @@ export default function WorkspaceSelector() {
       setError('');
       console.log('🔄 Creating workspace:', newWorkspace);
       
-      // Validate input
       if (!newWorkspace.name.trim()) {
         throw new Error('Workspace name is required');
       }
@@ -113,7 +111,6 @@ export default function WorkspaceSelector() {
       const createdWorkspace = await workspaceService.createWorkspace(workspaceData);
       console.log('✅ Workspace created:', createdWorkspace);
       
-      // Reset form and reload
       setNewWorkspace({ name: '', subdomain: '' });
       setShowCreateForm(false);
       await loadWorkspaces();
@@ -122,6 +119,45 @@ export default function WorkspaceSelector() {
       console.error('❌ Failed to create workspace:', error);
       setError(error.message || 'Failed to create workspace. Please try again.');
     }
+  };
+
+  const handleWorkspaceInvite = async (emailList) => {
+    try {
+      console.log('📧 Inviting to workspace:', { 
+        workspaceId: selectedWorkspace?.id, 
+        emails: emailList 
+      });
+      
+      const response = await workspaceService.inviteToWorkspace(
+        selectedWorkspace?.id, 
+        emailList
+      );
+      
+      console.log('✅ Workspace invitation response:', response);
+      
+      if (response.invited_users && response.invited_users.length > 0) {
+        alert(`✅ Successfully invited ${response.invited_users.length} user(s) to the workspace!`);
+      } else if (response.invitations_sent && response.invitations_sent.length > 0) {
+        alert(`📧 Sent ${response.invitations_sent.length} invitation(s) to join the workspace!`);
+      } else {
+        alert('⚠️ No new users were invited. They might already be workspace members.');
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Workspace invite error:', error);
+      
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to send workspace invitations';
+      alert(`❌ Error: ${errorMessage}`);
+      
+      throw error;
+    }
+  };
+
+  const openInviteModal = (workspace) => {
+    console.log('🎯 Opening invite modal for workspace:', workspace);
+    setSelectedWorkspace(workspace);
+    setShowInviteModal(true);
   };
 
   const handleLogout = () => {
@@ -136,7 +172,6 @@ export default function WorkspaceSelector() {
     loadWorkspaces();
   };
 
-  // Debug component
   const DebugInfo = () => {
     const token = localStorage.getItem('access_token');
     return (
@@ -147,6 +182,7 @@ export default function WorkspaceSelector() {
         <div>🔄 Loading: {loading ? 'Yes' : 'No'}</div>
         <div>📊 Workspaces: {workspaces.length}</div>
         <div>📝 Create Form: {showCreateForm ? 'Open' : 'Closed'}</div>
+        <div>📧 Invite Modal: {showInviteModal ? 'Open' : 'Closed'}</div>
         <div className="mt-2 space-y-1">
           <button
             onClick={refreshWorkspaces}
@@ -242,10 +278,9 @@ export default function WorkspaceSelector() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {workspaces.length > 0 ? (
             workspaces.map(workspace => (
-              <Link
+              <div
                 key={workspace.id}
-                to={`/chat/${workspace.id}`}
-                className="bg-gray-800 rounded-lg p-6 hover:bg-gray-700 transition-all duration-200 border border-gray-700 block hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/10"
+                className="bg-gray-800 rounded-lg p-6 hover:bg-gray-700 transition-all duration-200 border border-gray-700 hover:border-blue-500 hover:shadow-lg hover:shadow-blue-500/10"
               >
                 <div className="flex items-center space-x-4 mb-4">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-purple-600 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-lg">
@@ -279,7 +314,26 @@ export default function WorkspaceSelector() {
                     {workspace.channel_count || 0}
                   </span>
                 </div>
-              </Link>
+                
+                {/* Action Buttons */}
+                <div className="mt-4 flex space-x-2">
+                  <Link
+                    to={`/chat/${workspace.id}`}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-center py-2 px-3 rounded text-sm font-medium transition-colors"
+                  >
+                    Enter Workspace
+                  </Link>
+                  <button
+                    onClick={() => openInviteModal(workspace)}
+                    className="bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded text-sm font-medium transition-colors flex items-center justify-center"
+                    title="Invite members to workspace"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
             ))
           ) : (
             <div className="col-span-full text-center py-12">
@@ -363,6 +417,17 @@ export default function WorkspaceSelector() {
           )}
         </div>
       </div>
+
+      {/* WORKSPACE INVITE MODAL */}
+      <WorkspaceInviteModal
+        isOpen={showInviteModal}
+        onClose={() => {
+          setShowInviteModal(false);
+          setSelectedWorkspace(null);
+        }}
+        workspace={selectedWorkspace}
+        onInviteSent={handleWorkspaceInvite}
+      />
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import useAuthStore from '../../stores/authStore';
-
+import InvitationsPanel from '../../components/dashboards/InvitationsPanel'; 
+import WorkspaceInvitationsPanel from '../../components/dashboards/WorkspaceInvitationsPanel';
 const OverviewDashboard = () => {
   const { user, logout, organization, effectiveUserRole } = useAuthStore();
 
@@ -126,6 +127,11 @@ const OverviewDashboard = () => {
               </div>
             </div>
           </div>
+
+          {/* Invitations Panel - Add this section */}
+          <InvitationsPanel />
+          <WorkspaceInvitationsPanel />
+
 
           {/* Enhanced Quick Links */}
           <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-8">

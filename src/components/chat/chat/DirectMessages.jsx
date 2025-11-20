@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useWebSocket } from '../../../contexts/chat/WebSocketContext';
 import { useAuth } from '../../../contexts/chat/AuthContext';
@@ -15,6 +15,9 @@ export default function DirectMessages() {
   const [messages, setMessages] = useState([]);
   const [error, setError] = useState(null);
   const [sending, setSending] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
   const messagesEndRef = useRef(null);
 
   // Load DM data and messages
@@ -25,58 +28,79 @@ export default function DirectMessages() {
   }, [dmId]);
 
   const loadDMData = async () => {
+  try {
+    setLoading(true);
+    setError(null);
+
+    let currentDm = null;
+
+    // First, try to find existing DM
     try {
-      setLoading(true);
-      setError(null);
-
-      // Load DM details
       const dmData = await dmService.getDirectMessages();
-      const currentDm = Array.isArray(dmData) 
-        ? dmData.find(d => d.id === dmId || d.id === parseInt(dmId))
+      currentDm = Array.isArray(dmData) 
+        ? dmData.find(d => d.id === parseInt(dmId) || d.id === dmId)
         : null;
-
-      if (currentDm) {
-        setDm(currentDm);
-      } else {
-        // Create fallback DM data
-        const mockDm = {
-          id: dmId,
-          other_user: {
-            id: '2',
-            email: 'user@example.com',
-            display_name: 'Direct Message User'
-          },
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-        setDm(mockDm);
-      }
-
-      // Load messages
-      await loadMessages();
-
     } catch (error) {
-      console.error('Failed to load DM data:', error);
-      setError('Failed to load conversation');
-      // Set fallback data
-      const mockDm = {
-        id: dmId,
-        other_user: {
-          id: '2',
-          email: 'user@example.com',
-          display_name: 'Direct Message User'
-        }
-      };
-      setDm(mockDm);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch DMs:', error);
     }
-  };
 
-  const loadMessages = async () => {
+    if (currentDm) {
+      // DM exists, use it
+      setDm(currentDm);
+      await loadMessages();
+    } else {
+      // DM doesn't exist, check if dmId is a user ID for new conversation
+      const otherUserId = dmId;
+      
+      if (otherUserId && otherUserId !== user?.id) {
+        // Show creating state
+        setError('Creating conversation...');
+        
+        // Create temporary DM for UI
+        const tempDm = {
+          id: `temp-${dmId}`,
+          other_user: {
+            id: otherUserId,
+            email: 'Loading user...',
+            display_name: 'Loading...'
+          },
+          is_temp: true,
+          created_at: new Date().toISOString()
+        };
+        setDm(tempDm);
+
+        try {
+          // Create the actual DM
+          const newDm = await dmService.startDirectMessage(otherUserId);
+          console.log('✅ Created new DM:', newDm);
+          
+          // Replace temporary DM with real one
+          setDm(newDm);
+          setError(null);
+          
+          // Load messages for the new DM
+          await loadMessages();
+        } catch (createError) {
+          console.error('❌ Failed to create DM:', createError);
+          setError('Failed to create conversation. Please try again.');
+        }
+      } else {
+        setError('Invalid conversation');
+      }
+    }
+
+  } catch (error) {
+    console.error('Failed to load DM data:', error);
+    setError('Loading conversation...');
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const loadMessages = async (pageNum = 1, append = false) => {
     try {
       const messagesData = await dmService.getDMMessages(dmId, {
-        page: 1,
+        page: pageNum,
         page_size: 50
       });
       
@@ -85,10 +109,25 @@ export default function DirectMessages() {
         ? messagesData 
         : (messagesData.results || messagesData.messages || []);
       
-      setMessages(messagesArray);
+      if (append) {
+        setMessages(prev => [...messagesArray, ...prev]);
+      } else {
+        setMessages(messagesArray);
+      }
+      
+      // Check if there are more messages
+      setHasMore(messagesArray.length === 50);
+      setPage(pageNum);
+      
     } catch (error) {
       console.error('Failed to load DM messages:', error);
       setMessages([]);
+    }
+  };
+
+  const handleLoadMore = () => {
+    if (hasMore && !loading) {
+      loadMessages(page + 1, true);
     }
   };
 
@@ -100,9 +139,10 @@ export default function DirectMessages() {
 
     switch (lastMessage.type) {
       case 'direct_message':
-        if (lastMessage.dm_id === dmId) {
+      case 'new_direct_message':
+        if (lastMessage.dm_id === dmId || lastMessage.dm_id === parseInt(dmId)) {
           setMessages(prev => {
-            const exists = prev.some(msg => msg.id === lastMessage.message.id);
+            const exists = prev.some(msg => msg.id === lastMessage.message?.id);
             if (!exists) {
               return [...prev, lastMessage.message];
             }
@@ -113,7 +153,7 @@ export default function DirectMessages() {
 
       case 'message_updated':
         setMessages(prev => prev.map(msg => 
-          msg.id === lastMessage.message.id ? lastMessage.message : msg
+          msg.id === lastMessage.message?.id ? lastMessage.message : msg
         ));
         break;
 
@@ -161,72 +201,110 @@ export default function DirectMessages() {
         break;
 
       case 'typing_start':
-        // Handle typing indicators
-        console.log('User is typing...', lastMessage.user_id);
+        if (lastMessage.dm_id === dmId && lastMessage.user_id !== user?.id) {
+          setTypingUsers(prev => {
+            const exists = prev.find(u => u.id === lastMessage.user_id);
+            return exists ? prev : [...prev, { 
+              id: lastMessage.user_id, 
+              name: lastMessage.user_name || 'User' 
+            }];
+          });
+        }
         break;
 
       case 'typing_stop':
-        // Handle typing stop
-        console.log('User stopped typing...', lastMessage.user_id);
+        if (lastMessage.dm_id === dmId) {
+          setTypingUsers(prev => prev.filter(u => u.id !== lastMessage.user_id));
+        }
         break;
+
+      default:
+        console.log('Unhandled WebSocket message type:', lastMessage.type);
     }
-  }, [lastMessage, dmId]);
+  }, [lastMessage, dmId, user]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const handleSendMessage = async (content, file = null) => {
     if ((!content || !content.trim()) && !file) return;
 
     setSending(true);
+    
+    // Create temporary message ID for optimistic update
+    const tempId = `temp-${Date.now()}`;
+    
     try {
-      let messageData;
-
-      if (file) {
-        // Upload file - for DMs, we might need to handle this differently
-        // Since your API might not support room_id for DMs
-        const uploadResult = await messageService.uploadFile(file, null, content || '');
-        messageData = uploadResult;
-      } else {
-        // Send text message to DM
-        messageData = await dmService.sendDMMessage(dmId, content);
-      }
-
-      // Send via WebSocket for real-time update
-      if (sendWsMessage && messageData) {
-        sendWsMessage({
-          type: 'send_direct_message',
-          dm_id: dmId,
-          content: content,
-          message_type: file ? 'file' : 'text',
-          file: file ? {
-            name: file.name,
-            size: file.size,
-            type: file.type
-          } : null
-        });
-      }
-
       // Optimistically add to local state
-      const newMessage = {
-        id: `temp-${Date.now()}`,
+      const tempMessage = {
+        id: tempId,
         content: content,
         user: user,
         created_at: new Date().toISOString(),
         message_type: file ? 'file' : 'text',
-        file_url: messageData?.file_url,
         file_name: file?.name,
         file_size: file?.size,
         reactions: [],
-        is_temp: true
+        is_temp: true,
+        sending: true
       };
 
-      setMessages(prev => [...prev, newMessage]);
+      setMessages(prev => [...prev, tempMessage]);
+
+      let messageData;
+
+      if (file) {
+        // Try DM-specific file upload first, then fallback
+        try {
+          messageData = await dmService.uploadDMFile(dmId, file);
+        } catch (uploadError) {
+          console.error('DM file upload failed, trying general method:', uploadError);
+          // Fallback to sending as a regular message with file info
+          messageData = await dmService.sendDMMessage(
+            dmId, 
+            content || `File: ${file.name}`
+          );
+        }
+      } else {
+        messageData = await dmService.sendDMMessage(dmId, content);
+      }
+
+      // Replace temporary message with real one
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...messageData, sending: false, is_temp: false } : msg
+      ));
+
+      // WebSocket notification for other user
+      if (sendWsMessage && messageData) {
+        sendWsMessage({
+          type: 'new_direct_message',
+          dm_id: dmId,
+          message: messageData
+        });
+      }
+
+      setError(null); // Clear any previous errors
 
     } catch (error) {
       console.error('❌ Failed to send message:', error);
+      
+      // Mark message as failed
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...msg, failed: true, sending: false, error: error.message } : msg
+      ));
+      
       setError('Failed to send message: ' + error.message);
     } finally {
       setSending(false);
@@ -234,37 +312,52 @@ export default function DirectMessages() {
   };
 
   const handleReply = async (messageId, replyContent) => {
-    try {
-      const replyData = await messageService.replyToMessage(messageId, replyContent);
-      
-      // Send via WebSocket
-      if (sendWsMessage) {
-        sendWsMessage({
-          type: 'send_direct_message',
-          dm_id: dmId,
-          content: replyContent,
-          message_type: 'text',
-          replied_to: messageId
-        });
-      }
+    if (!replyContent.trim()) return;
 
-      // Add to local state
+    const tempId = `temp-reply-${Date.now()}`;
+    
+    try {
       const repliedMessage = messages.find(msg => msg.id === messageId);
-      const newMessage = {
-        id: `temp-reply-${Date.now()}`,
+      
+      // Optimistically add reply
+      const tempReply = {
+        id: tempId,
         content: replyContent,
         user: user,
         created_at: new Date().toISOString(),
         message_type: 'text',
-        replied_to: repliedMessage,
+        reply_to: repliedMessage,
         reactions: [],
-        is_temp: true
+        is_temp: true,
+        sending: true
       };
 
-      setMessages(prev => [...prev, newMessage]);
+      setMessages(prev => [...prev, tempReply]);
+
+      const replyData = await messageService.replyToMessage(messageId, replyContent);
+      
+      // Replace temporary reply with real one
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...replyData, sending: false, is_temp: false } : msg
+      ));
+
+      // WebSocket notification
+      if (sendWsMessage) {
+        sendWsMessage({
+          type: 'new_direct_message',
+          dm_id: dmId,
+          message: replyData
+        });
+      }
 
     } catch (error) {
       console.error('❌ Failed to send reply:', error);
+      
+      // Mark reply as failed
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...msg, failed: true, sending: false, error: error.message } : msg
+      ));
+      
       setError('Failed to send reply: ' + error.message);
     }
   };
@@ -284,11 +377,23 @@ export default function DirectMessages() {
         await messageService.pinMessage(messageId);
       }
       // Reload messages to reflect changes
-      loadMessages();
+      await loadMessages();
+      setError(null);
     } catch (error) {
       console.error('❌ Failed to pin/unpin message:', error);
       setError('Failed to pin message: ' + error.message);
     }
+  };
+
+  const handleRetryMessage = async (messageId) => {
+    const failedMessage = messages.find(msg => msg.id === messageId);
+    if (!failedMessage) return;
+    
+    // Remove the failed message
+    setMessages(prev => prev.filter(msg => msg.id !== messageId));
+    
+    // Retry sending
+    await handleSendMessage(failedMessage.content);
   };
 
   const getOtherUser = () => {
@@ -301,44 +406,56 @@ export default function DirectMessages() {
       return dm.participants.find(p => p.id !== user?.id);
     } else if (dm.users && Array.isArray(dm.users)) {
       return dm.users.find(u => u.id !== user?.id);
+    } else if (dm.user1 && dm.user2) {
+      return dm.user1.id === user?.id ? dm.user2 : dm.user1;
     }
     
     return null;
   };
 
+  const getMessageStatus = (message) => {
+    if (message.failed) return '❌ Failed';
+    if (message.sending) return '🕐 Sending';
+    if (message.read_receipts?.length > 0) return '👁️ Read';
+    if (message.delivered) return '✅ Delivered';
+    return '✅ Sent';
+  };
+
   const otherUser = getOtherUser();
 
-  if (loading) {
-    return (
-      <div className="flex-1 flex flex-col h-full bg-gray-900">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-400">Loading conversation...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+ // SIMPLIFIED LOADING STATES - Replace your current loading/error conditions
 
-  if (error && !dm) {
-    return (
-      <div className="flex-1 flex flex-col h-full bg-gray-900">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <div className="text-red-400 text-lg mb-2">Error</div>
-            <p className="text-gray-400">{error}</p>
-            <button
-              onClick={loadDMData}
-              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg"
-            >
-              Retry
-            </button>
-          </div>
+if (loading) {
+  return (
+    <div className="flex-1 flex flex-col h-full bg-gray-900">
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-400">Loading conversation...</p>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+if (error && !dm) {
+  return (
+    <div className="flex-1 flex flex-col h-full bg-gray-900">
+      <div className="flex-1 flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-lg mb-2">Error</div>
+          <p className="text-gray-400">{error}</p>
+          <button
+            onClick={loadDMData}
+            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
   return (
     <div className="flex-1 flex flex-col h-full bg-gray-900">
@@ -350,7 +467,7 @@ export default function DirectMessages() {
               {otherUser?.email?.charAt(0).toUpperCase() || 'U'}
             </span>
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold text-white">
               {otherUser?.display_name || otherUser?.email || 'Direct Message'}
             </h1>
@@ -376,6 +493,30 @@ export default function DirectMessages() {
           </div>
         ) : (
           <div className="space-y-2">
+            {/* Load More Button */}
+            {hasMore && (
+              <div className="text-center">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loading}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-sm transition-colors disabled:opacity-50"
+                >
+                  {loading ? 'Loading...' : 'Load older messages'}
+                </button>
+              </div>
+            )}
+
+            {/* Typing Indicators */}
+            {typingUsers.length > 0 && (
+              <div className="px-4 py-2">
+                <div className="text-gray-400 text-sm italic">
+                  {typingUsers.map(u => u.name).join(', ')} {typingUsers.length === 1 ? 'is' : 'are'} typing...
+                  <span className="ml-2 animate-pulse">✍️</span>
+                </div>
+              </div>
+            )}
+
+            {/* Messages */}
             {messages.map((message, index) => {
               const showAvatar = index === 0 || 
                 messages[index - 1]?.user?.id !== message.user?.id;
@@ -388,6 +529,9 @@ export default function DirectMessages() {
                   onReply={handleReply}
                   onPin={handlePinMessage}
                   onReactionUpdate={handleReactionUpdate}
+                  onRetry={handleRetryMessage}
+                  messageStatus={getMessageStatus(message)}
+                  currentUser={user}
                 />
               );
             })}
@@ -402,6 +546,25 @@ export default function DirectMessages() {
           onSendMessage={handleSendMessage}
           disabled={sending || !isConnected}
           placeholder={`Message ${otherUser?.display_name || otherUser?.email || 'user'}`}
+          onTypingStart={() => {
+            if (sendWsMessage && isConnected) {
+              sendWsMessage({
+                type: 'typing_start',
+                dm_id: dmId,
+                user_id: user?.id,
+                user_name: user?.display_name || user?.email
+              });
+            }
+          }}
+          onTypingStop={() => {
+            if (sendWsMessage && isConnected) {
+              sendWsMessage({
+                type: 'typing_stop', 
+                dm_id: dmId,
+                user_id: user?.id
+              });
+            }
+          }}
         />
         
         {!isConnected && (
@@ -423,7 +586,7 @@ export default function DirectMessages() {
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-300"
+              className="text-red-400 hover:text-red-300 transition-colors"
             >
               ✕
             </button>

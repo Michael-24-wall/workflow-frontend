@@ -1,3 +1,4 @@
+// components/chat/ChannelChat.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { useWebSocket } from "../../../contexts/chat/WebSocketContext";
@@ -5,8 +6,9 @@ import { messageService, channelService } from "../../../services/chat/api";
 import MessageList from "./MessageList";
 import MessageInput from "./MessageInput";
 import CreateChannelModal from "../../chat/CreateChannelModal";
+import ChannelInviteModal from "../../chat/ChannelInviteModal";
 
-export default function ChannelChat() {
+export default function ChannelChat({ onShowMembers, onShowInvite }) {
   const { channelId } = useParams();
   const { sendMessage, user } = useWebSocket();
   const [channel, setChannel] = useState(null);
@@ -15,6 +17,7 @@ export default function ChannelChat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
+  const [showInviteMembers, setShowInviteMembers] = useState(false);
   const messagesEndRef = useRef(null);
   const [replyingTo, setReplyingTo] = useState(null);
 
@@ -26,32 +29,32 @@ export default function ChannelChat() {
   }, [channelId]);
 
   const loadChannelData = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-    
-    console.log('🔍 Loading channel data for ID:', channelId);
-    
-    // Use only the specific channel endpoint to avoid 404s
-    const currentChannel = await channelService.getChannel(channelId);
-    
-    console.log('✅ Channel loaded successfully:', currentChannel);
-    setChannel(currentChannel);
-    
-  } catch (error) {
-    console.error("❌ Failed to load channel:", error);
-    setError("Failed to load channel data");
-    // Set fallback channel data
-    setChannel({ 
-      id: parseInt(channelId), 
-      name: `Channel ${channelId}`,
-      topic: "Team collaboration space",
-      purpose: "General discussion channel"
-    });
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      setLoading(true);
+      setError(null);
+      
+      console.log('🔍 Loading channel data for ID:', channelId);
+      
+      const currentChannel = await channelService.getChannel(channelId);
+      
+      console.log('✅ Channel loaded successfully:', currentChannel);
+      setChannel(currentChannel);
+      
+    } catch (error) {
+      console.error("❌ Failed to load channel:", error);
+      setError("Failed to load channel data");
+      // Set fallback channel data
+      setChannel({ 
+        id: parseInt(channelId), 
+        name: `Channel ${channelId}`,
+        topic: "Team collaboration space",
+        purpose: "General discussion channel"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadMessages = async () => {
     try {
       setError(null);
@@ -60,7 +63,7 @@ export default function ChannelChat() {
       const response = await channelService.getChannelMessages(channelId);
       console.log('📨 Messages response:', response);
       
-      // FIXED: Handle different response structures
+      // Handle different response structures
       let messagesData = [];
       
       if (Array.isArray(response)) {
@@ -72,7 +75,6 @@ export default function ChannelChat() {
       } else if (response && response.messages && Array.isArray(response.messages)) {
         messagesData = response.messages;
       } else if (response && typeof response === 'object') {
-        // If it's a single message object, wrap it in an array
         messagesData = [response];
       }
       
@@ -82,7 +84,46 @@ export default function ChannelChat() {
     } catch (error) {
       console.error("❌ Failed to load messages:", error);
       setError("Failed to load messages");
-      setMessages([]); // Ensure it's always an array
+      setMessages([]);
+    }
+  };
+
+  // 🆕 ADD THE MISSING handleSendMessage FUNCTION
+  const handleSendMessage = async (content, file = null) => {
+    if ((!content || !content.trim()) && !file) return;
+
+    setSending(true);
+    setError(null);
+    
+    try {
+      console.log('📤 Sending message or file:', { content, hasFile: !!file, channelId });
+
+      let result;
+
+      if (file) {
+        console.log('📎 Uploading file:', file.name, file.type, file.size);
+        result = await messageService.uploadFile(file, channelId, content || '');
+        console.log('✅ File upload response:', result);
+      } else {
+        console.log('💬 Sending text message');
+        result = await messageService.sendChannelMessage(channelId, content.trim());
+        console.log('✅ Text message response:', result);
+      }
+
+      if (result && result.id) {
+        setMessages(prev => [...prev, result]);
+        setTimeout(() => {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      } else {
+        await loadMessages();
+      }
+
+    } catch (error) {
+      console.error("❌ Failed to send message/file:", error);
+      setError(`Failed to send: ${error.message}`);
+    } finally {
+      setSending(false);
     }
   };
 
@@ -112,44 +153,34 @@ export default function ChannelChat() {
     }
   };
 
-  const handleSendMessage = async (content, file = null) => {
-    if ((!content || !content.trim()) && !file) return;
-
-    setSending(true);
-    setError(null);
-    
+  // 🆕 FIXED: Use channelService instead of direct api call
+  const handleInviteMembers = async (inviteData) => {
     try {
-      console.log('📤 Sending message or file:', { content, hasFile: !!file, channelId });
-
-      let result;
-
-      if (file) {
-        console.log('📎 Uploading file:', file.name, file.type, file.size);
-        result = await messageService.uploadFile(file, channelId, content || '');
-        console.log('✅ File upload response:', result);
+      console.log('📤 Sending invite request:', inviteData);
+      
+      // Use the channelService that's already imported
+      const response = await channelService.inviteToChannel(channelId, inviteData);
+      
+      console.log('✅ Invite response:', response);
+      
+      // Show success message
+      if (response.added_users && response.added_users.length > 0) {
+        alert(`✅ Successfully invited ${response.added_users.length} user(s) to the channel!`);
+      } else if (response.already_members && response.already_members.length > 0) {
+        alert(`ℹ️ ${response.already_members.length} user(s) are already channel members`);
       } else {
-        console.log('💬 Sending text message');
-        result = await messageService.sendChannelMessage(channelId, content.trim());
-        console.log('✅ Text message response:', result);
+        alert('⚠️ No users were invited. Please check if the users are workspace members.');
       }
-
-      // Update messages state with new message
-      if (result && result.id) {
-        setMessages(prev => [...prev, result]);
-        // Scroll to bottom
-        setTimeout(() => {
-          messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }, 100);
-      } else {
-        // If response doesn't include the message, reload messages
-        await loadMessages();
-      }
-
+      
+      return response;
     } catch (error) {
-      console.error("❌ Failed to send message/file:", error);
-      setError(`Failed to send: ${error.message}`);
-    } finally {
-      setSending(false);
+      console.error('❌ Invite error:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error.response?.data?.error || error.message || 'Failed to send invitations';
+      alert(`❌ Error: ${errorMessage}`);
+      
+      throw error;
     }
   };
 
@@ -165,10 +196,8 @@ export default function ChannelChat() {
       
       console.log('✅ Reply sent successfully:', result);
       
-      // Clear reply state
       setReplyingTo(null);
       
-      // Update messages
       if (result && result.id) {
         setMessages(prev => [...prev, result]);
         setTimeout(() => {
@@ -193,13 +222,11 @@ export default function ChannelChat() {
       
       console.log('✅ Message deleted successfully');
       
-      // Remove message from local state
       setMessages(prev => prev.filter(msg => msg.id !== messageId));
       
     } catch (error) {
       console.error("❌ Failed to delete message:", error);
       setError("Failed to delete message");
-      // Reload messages to ensure consistency
       await loadMessages();
     }
   };
@@ -212,7 +239,6 @@ export default function ChannelChat() {
       
       console.log('✅ Reaction added successfully:', result);
       
-      // Update message with new reactions
       setMessages(prev => prev.map(msg => {
         if (msg.id === messageId) {
           return {
@@ -237,7 +263,6 @@ export default function ChannelChat() {
       
       console.log('✅ Reaction removed successfully');
       
-      // Update message reactions in local state
       setMessages(prev => prev.map(msg => {
         if (msg.id === messageId) {
           const updatedReactions = (msg.reactions || []).filter(
@@ -266,7 +291,6 @@ export default function ChannelChat() {
       
       console.log('✅ Message edited successfully:', result);
       
-      // Update message in local state
       setMessages(prev => prev.map(msg => 
         msg.id === messageId 
           ? { 
@@ -282,7 +306,6 @@ export default function ChannelChat() {
     } catch (error) {
       console.error("❌ Failed to edit message:", error);
       setError("Failed to edit message");
-      // Reload messages to ensure consistency
       await loadMessages();
     }
   };
@@ -299,7 +322,6 @@ export default function ChannelChat() {
       
       console.log('✅ Pin status updated successfully');
       
-      // Reload messages to get updated pin status
       await loadMessages();
       
     } catch (error) {
@@ -314,7 +336,6 @@ export default function ChannelChat() {
     loadMessages();
   };
 
-  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -348,6 +369,24 @@ export default function ChannelChat() {
           </div>
           
           <div className="flex items-center space-x-4">
+            {/* Invite Members Button */}
+            <button
+              onClick={() => setShowInviteMembers(true)}
+              className="flex items-center space-x-2 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm transition-colors"
+            >
+              <span>👋</span>
+              <span>Invite Members</span>
+            </button>
+
+            {/* Show Members Button */}
+            <button
+              onClick={onShowMembers}
+              className="flex items-center space-x-2 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm transition-colors"
+            >
+              <span>👥</span>
+              <span>View Members</span>
+            </button>
+            
             {/* Create Channel Button */}
             <button
               onClick={() => setShowCreateChannel(true)}
@@ -454,8 +493,19 @@ export default function ChannelChat() {
       <CreateChannelModal
         isOpen={showCreateChannel}
         onClose={() => setShowCreateChannel(false)}
-        workspaceId={channel?.workspace?.id || 13} // Use current workspace or default to 13
+        workspaceId={channel?.workspace?.id || 13}
         onChannelCreated={handleCreateChannel}
+      />
+
+      
+
+      {/* Channel Invite Modal */}
+      <ChannelInviteModal
+        isOpen={showInviteMembers}
+        onClose={() => setShowInviteMembers(false)}
+        channelId={channelId}
+        channelName={channel?.name}
+        onInviteMembers={handleInviteMembers}
       />
     </div>
   );
