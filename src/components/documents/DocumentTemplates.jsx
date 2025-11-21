@@ -253,6 +253,7 @@ const DocumentTemplates = () => {
   );
 };
 
+// TemplateCard Component
 const TemplateCard = ({ template, onDuplicate, onDelete, onEdit }) => {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -355,6 +356,7 @@ const TemplateCard = ({ template, onDuplicate, onDelete, onEdit }) => {
   );
 };
 
+// TemplateModal Component
 const TemplateModal = ({ template, onClose, onSave }) => {
   const [formData, setFormData] = useState({
     name: template?.name || '',
@@ -362,6 +364,16 @@ const TemplateModal = ({ template, onClose, onSave }) => {
     content: template?.content || '',
     is_active: template?.is_active !== false // Default to true if undefined
   });
+
+  // Signature placeholders that users can insert
+  const signaturePlaceholders = [
+    { key: 'signature.manager', label: 'Manager Signature', description: 'For manager approval' },
+    { key: 'signature.employee', label: 'Employee Signature', description: 'For employee acceptance' },
+    { key: 'signature.witness', label: 'Witness Signature', description: 'For witness confirmation' },
+    { key: 'signature.client', label: 'Client Signature', description: 'For client agreement' },
+    { key: 'signature.ceo', label: 'CEO Signature', description: 'For executive approval' },
+    { key: 'signature.hr', label: 'HR Signature', description: 'For HR department' }
+  ];
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -376,16 +388,35 @@ const TemplateModal = ({ template, onClose, onSave }) => {
     onSave(formData);
   };
 
+  // Function to insert signature placeholder into content
+  const insertSignaturePlaceholder = (placeholderKey) => {
+    const signatureBlock = `\n\n--- SIGNATURE: ${placeholderKey.toUpperCase()} ---\n[Place for ${placeholderKey.split('.')[1]} signature]\n__________________________________________________\nName: \nDate: \n--- END SIGNATURE ---\n`;
+    
+    setFormData(prev => ({
+      ...prev,
+      content: prev.content + signatureBlock
+    }));
+  };
+
+  // Function to insert simple placeholder
+  const insertSimplePlaceholder = (placeholderKey) => {
+    const simplePlaceholder = `\n[${placeholderKey}]`;
+    setFormData(prev => ({
+      ...prev,
+      content: prev.content + simplePlaceholder
+    }));
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden">
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
             {template ? 'Edit Template' : 'Create New Template'}
           </h2>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+        <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto max-h-[60vh]">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Template Name *
@@ -413,6 +444,70 @@ const TemplateModal = ({ template, onClose, onSave }) => {
             />
           </div>
 
+          {/* SIGNATURE FIELDS SECTION */}
+          <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+              Signature Fields
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+              Add signature fields to your document template. These will become required signing points when the document is created.
+            </p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {signaturePlaceholders.map((placeholder) => (
+                <div key={placeholder.key} className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => insertSignaturePlaceholder(placeholder.key)}
+                    className="flex-1 px-3 py-2 text-xs bg-blue-100 hover:bg-blue-200 dark:bg-blue-900 dark:hover:bg-blue-800 text-blue-800 dark:text-blue-200 rounded border border-blue-300 dark:border-blue-700 transition-colors text-left"
+                  >
+                    <div className="font-medium">{placeholder.label}</div>
+                    <div className="text-blue-600 dark:text-blue-400">{placeholder.description}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => insertSimplePlaceholder(placeholder.key)}
+                    className="px-2 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 text-gray-700 dark:text-gray-300 rounded"
+                    title="Insert simple placeholder"
+                  >
+                    Simple
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* REGULAR PLACEHOLDERS SECTION */}
+          <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-white mb-3">
+              Dynamic Fields
+            </h3>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'user.first_name', label: 'First Name' },
+                { key: 'user.last_name', label: 'Last Name' },
+                { key: 'user.email', label: 'Email' },
+                { key: 'user.position', label: 'Position' },
+                { key: 'company.name', label: 'Company Name' },
+                { key: 'company.address', label: 'Company Address' },
+                { key: 'date.today', label: "Today's Date" },
+                { key: 'date.signature', label: 'Signature Date' }
+              ].map((field) => (
+                <button
+                  key={field.key}
+                  type="button"
+                  onClick={() => {
+                    const newContent = formData.content + ` {{${field.key}}}`;
+                    setFormData({ ...formData, content: newContent });
+                  }}
+                  className="px-3 py-1 text-xs bg-green-100 hover:bg-green-200 dark:bg-green-900 dark:hover:bg-green-800 text-green-800 dark:text-green-200 rounded border border-green-300 dark:border-green-700 transition-colors"
+                >
+                  {field.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Template Content *
@@ -421,12 +516,12 @@ const TemplateModal = ({ template, onClose, onSave }) => {
               required
               value={formData.content}
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-              rows={10}
+              rows={12}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
-              placeholder="Enter your template content with placeholders like {{user.first_name}}..."
+              placeholder="Enter your template content..."
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Use placeholders like {'{{user.first_name}}'} for dynamic content
+              Use the buttons above to insert signature fields and dynamic placeholders
             </p>
           </div>
 
@@ -465,4 +560,5 @@ const TemplateModal = ({ template, onClose, onSave }) => {
   );
 };
 
+// ✅ Make sure this default export is present
 export default DocumentTemplates;
