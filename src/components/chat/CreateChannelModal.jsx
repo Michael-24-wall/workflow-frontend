@@ -1,7 +1,7 @@
 // src/components/chat/CreateChannelModal.jsx
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
-import { channelService } from '../../services/chat/api'; // Import your API service
+import { channelService } from '../../services/chat/api';
 
 const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) => {
   const [formData, setFormData] = useState({
@@ -15,11 +15,23 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!formData.name.trim()) {
+      setError('Channel name is required');
+      return;
+    }
+
+    if (!workspaceId) {
+      setError('Workspace ID is required');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
-      // ✅ FIXED: Use channelService instead of raw fetch
+      console.log('🚀 Creating channel with workspace ID:', workspaceId);
+      
       const newChannel = await channelService.createChannel({
         workspace: workspaceId,
         name: formData.name,
@@ -29,16 +41,21 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
       });
 
       console.log('✅ Channel created successfully:', newChannel);
-      onChannelCreated(newChannel);
-      onClose();
       
-      // Reset form
+      // Notify parent component
+      if (onChannelCreated) {
+        onChannelCreated(newChannel);
+      }
+      
+      // Close modal and reset form
+      onClose();
       setFormData({
         name: '',
         topic: '',
         purpose: '',
         channel_type: 'public'
       });
+      
     } catch (err) {
       console.error('❌ Failed to create channel:', err);
       setError(err.message || 'Failed to create channel');
@@ -47,81 +64,56 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
     }
   };
 
-  // Alternative fix if you prefer to keep using fetch directly:
-  const handleSubmitWithFetch = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      const token = localStorage.getItem('access_token');
-      
-      // ✅ FIXED: Use correct backend URL with port 9000
-      const response = await fetch('http://localhost:9000/api/chat/channels/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          workspace: workspaceId,
-          name: formData.name,
-          topic: formData.topic,
-          purpose: formData.purpose,
-          channel_type: formData.channel_type
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create channel');
-      }
-
-      const channel = await response.json();
-      onChannelCreated(channel);
-      onClose();
-      
-      // Reset form
-      setFormData({
-        name: '',
-        topic: '',
-        purpose: '',
-        channel_type: 'public'
-      });
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear error when user starts typing
+    if (error) {
+      setError('');
     }
   };
 
-  const handleChange = (e) => {
+  const handleClose = () => {
     setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
+      name: '',
+      topic: '',
+      purpose: '',
+      channel_type: 'public'
     });
+    setError('');
+    onClose();
   };
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-slate-800 rounded-xl w-full max-w-md">
+      <div className="bg-slate-800 rounded-xl w-full max-w-md mx-auto border border-slate-700 shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-700">
-          <h2 className="text-xl font-semibold text-white">Create Channel</h2>
+          <div>
+            <h2 className="text-xl font-semibold text-white">Create Channel</h2>
+            <p className="text-slate-400 text-sm mt-1">
+              Workspace ID: {workspaceId}
+            </p>
+          </div>
           <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
+            onClick={handleClose}
+            className="text-slate-400 hover:text-white transition-colors p-1 rounded hover:bg-slate-700"
+            disabled={loading}
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="bg-red-500 bg-opacity-20 border border-red-500 rounded-lg p-3">
+            <div className="bg-red-500/10 border border-red-500/50 rounded-lg p-3">
               <p className="text-red-300 text-sm">{error}</p>
             </div>
           )}
@@ -132,15 +124,16 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
               Channel Name *
             </label>
             <div className="flex items-center">
-              <span className="text-slate-400 mr-2">#</span>
+              <span className="text-slate-400 mr-2 bg-slate-700 px-2 py-2 rounded-l border border-r-0 border-slate-600">#</span>
               <input
                 type="text"
                 name="name"
                 value={formData.name}
                 onChange={handleChange}
-                placeholder="e.g. general, random, projects"
-                className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="general, announcements, random"
+                className="flex-1 bg-slate-700 border border-slate-600 rounded-r px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 required
+                disabled={loading}
               />
             </div>
             <p className="text-slate-400 text-xs mt-1">
@@ -158,8 +151,9 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
               value={formData.channel_type}
               onChange={handleChange}
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
             >
-              <option value="public">Public - Anyone in the workspace can join</option>
+              <option value="public">Public - Anyone in workspace can join</option>
               <option value="private">Private - Only invited members can access</option>
             </select>
           </div>
@@ -176,13 +170,17 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
               onChange={handleChange}
               placeholder="What is this channel about?"
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={loading}
             />
+            <p className="text-slate-400 text-xs mt-1">
+              A short description shown in the channel header
+            </p>
           </div>
 
           {/* Purpose */}
           <div>
             <label className="block text-sm font-medium text-slate-300 mb-2">
-              Purpose (Optional)
+              Description (Optional)
             </label>
             <textarea
               name="purpose"
@@ -191,24 +189,36 @@ const CreateChannelModal = ({ isOpen, onClose, workspaceId, onChannelCreated }) 
               placeholder="Describe the purpose of this channel..."
               rows="3"
               className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              disabled={loading}
             />
+            <p className="text-slate-400 text-xs mt-1">
+              A longer description for new members
+            </p>
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end space-x-3 pt-4">
+          <div className="flex justify-end space-x-3 pt-4 border-t border-slate-700">
             <button
               type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-slate-300 hover:text-white transition-colors"
+              onClick={handleClose}
+              disabled={loading}
+              className="px-4 py-2 text-slate-300 hover:text-white disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading || !formData.name.trim()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
             >
-              {loading ? 'Creating...' : 'Create Channel'}
+              {loading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Creating...</span>
+                </div>
+              ) : (
+                'Create Channel'
+              )}
             </button>
           </div>
         </form>

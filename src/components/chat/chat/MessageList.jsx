@@ -1,23 +1,47 @@
 import React, { useEffect, useRef } from 'react';
 import Message from './Message';
+import useAuthStore from '../../../stores/authStore';
 
 export default function MessageList({ messages = [], onDelete, onEdit, onReact, onReply, onPin }) {
   const messagesEndRef = useRef(null);
+  const { user } = useAuthStore();
+
+  // ADD THIS DEBUG EFFECT
+  useEffect(() => {
+    console.log('🔍 MESSAGELIST DEBUG:', {
+      totalMessages: messages.length,
+      currentUserId: user?.id,
+      messages: messages.map(msg => ({
+        id: msg.id,
+        content: msg.content?.substring(0, 20),
+        userId: msg.user?.id,
+        userName: msg.user?.display_name || msg.user?.email || 'Unknown',
+        userValid: msg.user && msg.user.id > 0,
+        isOwn: msg.user?.id === user?.id
+      }))
+    });
+
+    // Also log individual problematic messages
+    messages.forEach(msg => {
+      if (msg.user?.id === -4) {
+        console.log('🚨 PROBLEMATIC MESSAGE:', {
+          id: msg.id,
+          content: msg.content,
+          user: msg.user,
+          fullMessage: msg
+        });
+      }
+    });
+  }, [messages, user]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const sortedMessages = [...messages].sort((a, b) => {
-    // Pinned messages first
     if (a.is_pinned && !b.is_pinned) return -1;
     if (!a.is_pinned && b.is_pinned) return 1;
     
-
-
-
-
-
     const timeA = new Date(a.timestamp || a.created_at);
     const timeB = new Date(b.timestamp || b.created_at);
     return timeA - timeB; 

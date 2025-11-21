@@ -22,95 +22,85 @@ export default function ChannelInviteModal({ channelId, channelName, isOpen, onC
   }, [isOpen, channelId]);
 
   const getWorkspaceMembers = async () => {
-  try {
-    const token = localStorage.getItem('access_token');
-    if (!token) {
-      throw new Error('No access token found');
-    }
-
-    console.log('🔄 Loading workspace members for channel invitations...');
-
-    // Method 1: Try to get workspace ID from channel first
-    const channelResponse = await fetch(`${API_BASE_URL}/chat/channels/${channelId}/`, {
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!channelResponse.ok) {
-      throw new Error(`Failed to fetch channel: ${channelResponse.statusText}`);
-    }
-
-    const channelData = await channelResponse.json();
-    
-    // FIX: Properly extract workspace ID
-    let workspaceId;
-    if (typeof channelData.workspace === 'object') {
-      workspaceId = channelData.workspace.id; // If workspace is an object
-    } else {
-      workspaceId = channelData.workspace; // If workspace is just an ID
-    }
-    
-    console.log(`🏢 Channel ${channelId} belongs to workspace ${workspaceId} (Type: ${typeof workspaceId})`);
-
-    // Method 2: Try workspace members endpoint if it exists
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/workspaces/${workspaceId}/members/`, {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        throw new Error('No access token found');
+      }
+
+      console.log('🔄 Loading workspace members for channel invitations...');
+
+      // Method 1: Try to get workspace ID from channel first
+      const channelResponse = await fetch(`${API_BASE_URL}/chat/channels/${channelId}/`, {
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
 
-      if (response.ok) {
-        const members = await response.json();
-        console.log(`✅ Loaded ${members.length} workspace members from endpoint`);
-        return members;
-      } else {
-        console.log(`⚠️ Workspace members endpoint returned ${response.status}`);
+      if (!channelResponse.ok) {
+        throw new Error(`Failed to fetch channel: ${channelResponse.statusText}`);
       }
-    } catch (workspaceError) {
-      console.log('⚠️ Workspace members endpoint not available:', workspaceError.message);
-    }
 
-    // Method 3: Fallback - get all users from organization
-    console.log('🔄 Using organization members as fallback...');
-    const orgResponse = await fetch(`${API_BASE_URL}/organizations/members/`, {
-      headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (orgResponse.ok) {
-      const orgMembers = await orgResponse.json();
-      console.log(`✅ Loaded ${orgMembers.length} organization members as fallback`);
+      const channelData = await channelResponse.json();
+      const workspaceId = channelData.workspace;
       
-      // TEMPORARY: Add test user if not in organization
-      const testUserExists = orgMembers.find(m => m.email === 'testuser@example.com');
-      if (!testUserExists) {
-        orgMembers.push({
-          id: 5,
-          email: 'testuser@example.com',
-          first_name: 'Test',
-          last_name: 'User',
-          organization_role: 'member',
-          is_active: true
+      console.log(`🏢 Channel ${channelId} belongs to workspace ${workspaceId}`);
+
+      // Method 2: Try workspace members endpoint
+      try {
+        const response = await fetch(`${API_BASE_URL}/chat/workspaces/${workspaceId}/members/`, {
+          headers: { 
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
         });
-        console.log('➕ Added test user to organization members temporarily');
+
+        if (response.ok) {
+          const members = await response.json();
+          console.log(`✅ Loaded ${members.length} workspace members from endpoint`);
+          return members;
+        }
+      } catch (workspaceError) {
+        console.log('⚠️ Workspace members endpoint not available:', workspaceError.message);
       }
-      
-      return orgMembers;
+
+      // Method 3: Fallback - get all users from organization (temporary)
+      console.log('🔄 Using organization members as fallback...');
+      const orgResponse = await fetch(`${API_BASE_URL}/organizations/members/`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (orgResponse.ok) {
+        const orgMembers = await orgResponse.json();
+        console.log(`✅ Loaded ${orgMembers.length} organization members as fallback`);
+        
+        // TEMPORARY: Add test user if not in organization
+        if (!orgMembers.find(m => m.email === 'testuser@example.com')) {
+          orgMembers.push({
+            id: 5,
+            email: 'testuser@example.com',
+            first_name: 'Test',
+            last_name: 'User',
+            organization_role: 'member',
+            is_active: true
+          });
+          console.log('➕ Added test user to organization members temporarily');
+        }
+        
+        return orgMembers;
+      }
+
+      throw new Error('Could not load workspace or organization members');
+
+    } catch (error) {
+      console.error('❌ Failed to load workspace members:', error);
+      throw error;
     }
-
-    throw new Error('Could not load workspace or organization members');
-
-  } catch (error) {
-    console.error('❌ Failed to load workspace members:', error);
-    throw error;
-  }
-};
+  };
 
   const loadSuggestions = async (query = '') => {
     if (!channelId) {
@@ -191,75 +181,85 @@ export default function ChannelInviteModal({ channelId, channelName, isOpen, onC
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  if (selectedUsers.length === 0 || !channelId) {
-    setError('Please select at least one user to invite');
-    return;
-  }
-
-  setLoading(true);
-  setError(null);
-  
-  try {
-    // Extract user IDs - ensure they're numbers
-    const userIds = selectedUsers
-      .map(user => {
-        const id = user.user?.id;
-        console.log('🔍 User mapping:', { 
-          user: user.user?.email,
-          rawId: id, 
-          type: typeof id,
-          parsedId: parseInt(id) 
-        });
-        return parseInt(id);
-      })
-      .filter(id => !isNaN(id) && id != null);
-    
-    console.log('📨 FINAL - Inviting users to channel:', { 
-      channelId, 
-      userIds,
-      selectedUsers: selectedUsers.map(u => u.user),
-      userIdsJSON: JSON.stringify(userIds)
-    });
-
-    // 🆕 FIX: Ensure we're sending the data in correct format
-    const inviteData = {
-      user_ids: userIds  // This should be an array of integers
-    };
-
-    console.log('🔍 DEBUG - Final invite data being sent:', inviteData);
-    
-    if (onInviteMembers) {
-      // Send the properly formatted data
-      console.log('🚀 Calling onInviteMembers with data:', inviteData);
-      const result = await onInviteMembers(inviteData); // Pass the object, not just array
-      console.log('✅ Invitation response:', result);
-      
-      // Handle successful invitation
-      setSelectedUsers([]);
-      setSearchQuery('');
-      console.log('✅ Invitations sent successfully');
-      onClose();
-      
-    } else {
-      throw new Error('No invite handler provided');
+    e.preventDefault();
+    if (selectedUsers.length === 0 || !channelId) {
+      setError('Please select at least one user to invite');
+      return;
     }
+
+    setLoading(true);
+    setError(null);
     
-  } catch (error) {
-    console.error('❌ Failed to send invitations:', error);
-    
-    // Provide more specific error messages
-    if (error.message.includes('400') && error.message.includes('User IDs are required')) {
-      setError('Invalid user data. Please try selecting users again.');
-    } else if (error.message.includes('404')) {
-      setError('Channel not found. Please refresh and try again.');
-    } else {
+    try {
+      const userIds = selectedUsers
+        .map(user => {
+          const id = user.user?.id;
+          console.log('🔍 User mapping:', { 
+            user, 
+            rawId: id, 
+            type: typeof id,
+            parsedId: parseInt(id) 
+          });
+          return parseInt(id);
+        })
+        .filter(id => !isNaN(id) && id != null);
+      
+      console.log('📨 FINAL - Inviting users to channel:', { 
+        channelId, 
+        userIds,
+        userIdsType: typeof userIds[0],
+        selectedUsers: selectedUsers.map(u => ({
+          id: u.user?.id,
+          type: typeof u.user?.id,
+          name: u.user?.display_name,
+          email: u.user?.email
+        }))
+      });
+      
+      if (onInviteMembers) {
+        const result = await onInviteMembers(userIds);
+        console.log('✅ Invitation response:', result);
+        
+        // Check the response for details
+        if (result.data) {
+          console.log('📊 INVITATION RESULTS:', {
+            invited: result.data.added_users,
+            already_members: result.data.already_members,
+            not_in_workspace: result.data.not_in_workspace,
+            workspace: result.data.workspace_name
+          });
+          
+          if (result.data.not_in_workspace && result.data.not_in_workspace.length > 0) {
+            setError(`Some users are not workspace members: ${result.data.not_in_workspace.join(', ')}. They need to be added to the workspace first.`);
+            return;
+          }
+          
+          if (result.data.already_members && result.data.already_members.length > 0) {
+            setError(`Some users are already channel members: ${result.data.already_members.join(', ')}`);
+            return;
+          }
+        }
+        
+        if (result.data && result.data.added_users && result.data.added_users.length > 0) {
+          setSelectedUsers([]);
+          setSearchQuery('');
+          console.log('✅ Invitations sent successfully');
+          onClose();
+        } else {
+          setError('No users were invited. Check if they are already members or not in the workspace.');
+        }
+      } else {
+        throw new Error('No invite handler provided');
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to send invitations:', error);
       setError(error.message || 'Failed to send invitations. Please try again.');
+    } finally {
+      setLoading(false);
     }
-  } finally {
-    setLoading(false);
-  }
-};
+  };
+
   const handleClose = () => {
     setSelectedUsers([]);
     setSearchQuery('');

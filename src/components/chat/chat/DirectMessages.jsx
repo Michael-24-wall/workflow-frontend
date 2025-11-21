@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useWebSocket } from '../../../contexts/chat/WebSocketContext';
-import { useAuth } from '../../../contexts/chat/AuthContext';
+import useAuthStore from '../../../stores/authStore'; // CHANGED: Use authStore instead of useAuth
 import { messageService, dmService } from '../../../services/chat/api';
 import Message from './Message';
 import MessageInput from './MessageInput';
 
 export default function DirectMessages() {
   const { dmId } = useParams();
-  const { user } = useAuth();
+  const { user } = useAuthStore(); // CHANGED: Get user from authStore
   const { sendMessage: sendWsMessage, lastMessage, isConnected } = useWebSocket();
   const [dm, setDm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -28,74 +28,74 @@ export default function DirectMessages() {
   }, [dmId]);
 
   const loadDMData = async () => {
-  try {
-    setLoading(true);
-    setError(null);
-
-    let currentDm = null;
-
-    // First, try to find existing DM
     try {
-      const dmData = await dmService.getDirectMessages();
-      currentDm = Array.isArray(dmData) 
-        ? dmData.find(d => d.id === parseInt(dmId) || d.id === dmId)
-        : null;
-    } catch (error) {
-      console.error('Failed to fetch DMs:', error);
-    }
+      setLoading(true);
+      setError(null);
 
-    if (currentDm) {
-      // DM exists, use it
-      setDm(currentDm);
-      await loadMessages();
-    } else {
-      // DM doesn't exist, check if dmId is a user ID for new conversation
-      const otherUserId = dmId;
-      
-      if (otherUserId && otherUserId !== user?.id) {
-        // Show creating state
-        setError('Creating conversation...');
-        
-        // Create temporary DM for UI
-        const tempDm = {
-          id: `temp-${dmId}`,
-          other_user: {
-            id: otherUserId,
-            email: 'Loading user...',
-            display_name: 'Loading...'
-          },
-          is_temp: true,
-          created_at: new Date().toISOString()
-        };
-        setDm(tempDm);
+      let currentDm = null;
 
-        try {
-          // Create the actual DM
-          const newDm = await dmService.startDirectMessage(otherUserId);
-          console.log('✅ Created new DM:', newDm);
-          
-          // Replace temporary DM with real one
-          setDm(newDm);
-          setError(null);
-          
-          // Load messages for the new DM
-          await loadMessages();
-        } catch (createError) {
-          console.error('❌ Failed to create DM:', createError);
-          setError('Failed to create conversation. Please try again.');
-        }
-      } else {
-        setError('Invalid conversation');
+      // First, try to find existing DM
+      try {
+        const dmData = await dmService.getDirectMessages();
+        currentDm = Array.isArray(dmData) 
+          ? dmData.find(d => d.id === parseInt(dmId) || d.id === dmId)
+          : null;
+      } catch (error) {
+        console.error('Failed to fetch DMs:', error);
       }
-    }
 
-  } catch (error) {
-    console.error('Failed to load DM data:', error);
-    setError('Loading conversation...');
-  } finally {
-    setLoading(false);
-  }
-};
+      if (currentDm) {
+        // DM exists, use it
+        setDm(currentDm);
+        await loadMessages();
+      } else {
+        // DM doesn't exist, check if dmId is a user ID for new conversation
+        const otherUserId = dmId;
+        
+        if (otherUserId && otherUserId !== user?.id) {
+          // Show creating state
+          setError('Creating conversation...');
+          
+          // Create temporary DM for UI
+          const tempDm = {
+            id: `temp-${dmId}`,
+            other_user: {
+              id: otherUserId,
+              email: 'Loading user...',
+              display_name: 'Loading...'
+            },
+            is_temp: true,
+            created_at: new Date().toISOString()
+          };
+          setDm(tempDm);
+
+          try {
+            // Create the actual DM
+            const newDm = await dmService.startDirectMessage(otherUserId);
+            console.log('✅ Created new DM:', newDm);
+            
+            // Replace temporary DM with real one
+            setDm(newDm);
+            setError(null);
+            
+            // Load messages for the new DM
+            await loadMessages();
+          } catch (createError) {
+            console.error('❌ Failed to create DM:', createError);
+            setError('Failed to create conversation. Please try again.');
+          }
+        } else {
+          setError('Invalid conversation');
+        }
+      }
+
+    } catch (error) {
+      console.error('Failed to load DM data:', error);
+      setError('Loading conversation...');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadMessages = async (pageNum = 1, append = false) => {
     try {
@@ -238,7 +238,7 @@ export default function DirectMessages() {
     }
   }, [error]);
 
-  const handleSendMessage = async (content, file = null) => {
+  const                     handleSendMessage = async (content, file = null) => {
     if ((!content || !content.trim()) && !file) return;
 
     setSending(true);
@@ -423,39 +423,37 @@ export default function DirectMessages() {
 
   const otherUser = getOtherUser();
 
- // SIMPLIFIED LOADING STATES - Replace your current loading/error conditions
-
-if (loading) {
-  return (
-    <div className="flex-1 flex flex-col h-full bg-gray-900">
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-400">Loading conversation...</p>
+  if (loading) {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-gray-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-400">Loading conversation...</p>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-if (error && !dm) {
-  return (
-    <div className="flex-1 flex flex-col h-full bg-gray-900">
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-red-400 text-lg mb-2">Error</div>
-          <p className="text-gray-400">{error}</p>
-          <button
-            onClick={loadDMData}
-            className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+  if (error && !dm) {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-gray-900">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="text-red-400 text-lg mb-2">Error</div>
+            <p className="text-gray-400">{error}</p>
+            <button
+              onClick={loadDMData}
+              className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full bg-gray-900">
@@ -531,7 +529,7 @@ if (error && !dm) {
                   onReactionUpdate={handleReactionUpdate}
                   onRetry={handleRetryMessage}
                   messageStatus={getMessageStatus(message)}
-                  currentUser={user}
+                  // REMOVED: currentUser={user} - Message will use useAuthStore()
                 />
               );
             })}

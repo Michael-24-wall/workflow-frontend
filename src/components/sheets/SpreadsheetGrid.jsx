@@ -25,6 +25,9 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
   const handleCellClick = useCallback((row, col) => {
     const cellKey = `${row}-${col}`;
     const cell = cells[cellKey];
+    
+    console.log('🖱️ [GRID] Cell clicked:', { row, col, cellKey, cell });
+    
     setSelectedCell({ row, col });
     setEditingCell({ row, col });
     setEditValue(cell?.value || '');
@@ -36,7 +39,7 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
   }, [cells, onSelectionChange]);
 
   const handleCellDoubleClick = useCallback((row, col) => {
-    // Double click immediately starts editing
+    console.log('🖱️ [GRID] Cell double-clicked:', { row, col });
     handleCellClick(row, col);
   }, [handleCellClick]);
 
@@ -44,11 +47,23 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
     if (editingCell && !isSavingRef.current) {
       isSavingRef.current = true;
       
-      const cellKey = `${editingCell.row}-${editingCell.column}`;
+      const { row, col } = editingCell;
+      const cellKey = `${row}-${col}`;
       const currentValue = cells[cellKey]?.value || '';
       
+      console.log('💾 [GRID] Saving cell:', { 
+        row, 
+        col, 
+        cellKey, 
+        newValue: editValue, 
+        currentValue 
+      });
+      
       if (editValue !== currentValue) {
-        onCellUpdate(editingCell.row, editingCell.column, editValue);
+        console.log('🔄 [GRID] Value changed, calling onCellUpdate');
+        onCellUpdate(row, col, editValue);
+      } else {
+        console.log('⚡ [GRID] Value unchanged, skipping update');
       }
       
       setEditingCell(null);
@@ -57,6 +72,7 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
   }, [editingCell, editValue, cells, onCellUpdate]);
 
   const handleCellBlur = useCallback(() => {
+    console.log('👋 [GRID] Cell blur - saving value');
     // Use setTimeout to ensure this runs after the click event for the new cell
     setTimeout(() => {
       if (document.activeElement !== inputRef.current) {
@@ -68,40 +84,56 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
   const handleKeyDown = useCallback((e) => {
     if (!editingCell) return;
 
+    console.log('⌨️ [GRID] Key pressed:', e.key);
+
     if (e.key === 'Enter') {
       e.preventDefault();
+      console.log('⏎ [GRID] Enter pressed - saving and moving down');
       saveCellValue();
       
       // Move to next row on Enter
       if (selectedCell && selectedCell.row < ROWS - 1) {
         setTimeout(() => {
-          handleCellClick(selectedCell.row + 1, selectedCell.column);
+          handleCellClick(selectedCell.row + 1, selectedCell.col);
         }, 10);
       }
     } else if (e.key === 'Escape') {
       e.preventDefault();
-      const cellKey = `${editingCell.row}-${editingCell.column}`;
+      console.log('⎋ [GRID] Escape pressed - cancelling edit');
+      const cellKey = `${editingCell.row}-${editingCell.col}`;
       const cell = cells[cellKey];
       setEditValue(cell?.value || '');
       setEditingCell(null);
     } else if (e.key === 'Tab') {
       e.preventDefault();
+      console.log('⇥ [GRID] Tab pressed - saving and moving right');
       saveCellValue();
       
       // Move to next column on Tab
-      if (selectedCell && selectedCell.column < COLS - 1) {
+      if (selectedCell && selectedCell.col < COLS - 1) {
         setTimeout(() => {
-          handleCellClick(selectedCell.row, selectedCell.column + 1);
+          handleCellClick(selectedCell.row, selectedCell.col + 1);
         }, 10);
       }
     }
   }, [editingCell, selectedCell, cells, saveCellValue, handleCellClick]);
 
   const getCellValue = useCallback((row, col) => {
-    return cells[`${row}-${col}`]?.value || '';
+    const cellKey = `${row}-${col}`;
+    const value = cells[cellKey]?.value || '';
+    
+    // Debug: log empty cells that should have values
+    if (value && row < 5 && col < 5) {
+      console.log('📝 [GRID] Getting cell value:', { row, col, cellKey, value });
+    }
+    
+    return value;
   }, [cells]);
 
-  const getCellStyle = useCallback((cell) => {
+  const getCellStyle = useCallback((row, col) => {
+    const cellKey = `${row}-${col}`;
+    const cell = cells[cellKey];
+    
     if (!cell?.style) return {};
     
     return {
@@ -114,12 +146,13 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
       fontSize: cell.style.fontSize ? `${cell.style.fontSize}px` : undefined,
       fontFamily: cell.style.fontFamily,
     };
-  }, []);
+  }, [cells]);
 
   // Handle click outside to stop editing
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (editingCell && inputRef.current && !inputRef.current.contains(e.target)) {
+        console.log('👆 [GRID] Click outside - saving');
         saveCellValue();
       }
     };
@@ -128,18 +161,26 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [editingCell, saveCellValue]);
 
+  // Debug: log current cells
+  useEffect(() => {
+    console.log('🔍 [GRID] Current cells state:', {
+      totalCells: Object.keys(cells).length,
+      sampleCells: Object.entries(cells).slice(0, 5)
+    });
+  }, [cells]);
+
   return (
     <div className="flex-1 overflow-auto bg-white">
       <div className="inline-block min-w-full">
         {/* Column Headers */}
         <div className="flex bg-gray-50 border-b border-gray-300 sticky top-0 z-20">
           <div className="w-12 h-8 border-r border-gray-300 flex items-center justify-center bg-gray-50 font-semibold text-gray-600 text-xs"></div>
-          {Array.from({ length: COLS }, (_, i) => (
+          {Array.from({ length: COLS }, (_, col) => (
             <div
-              key={i}
+              key={col}
               className="w-24 h-8 border-r border-gray-300 flex items-center justify-center bg-gray-50 font-semibold text-gray-600 text-xs"
             >
-              {getColumnName(i)}
+              {getColumnName(col)}
             </div>
           ))}
         </div>
@@ -155,11 +196,15 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
             {/* Cells */}
             {Array.from({ length: COLS }, (_, col) => {
               const cellKey = `${row}-${col}`;
-              const cell = cells[cellKey];
               const isSelected = selectedCell?.row === row && selectedCell?.col === col;
               const isEditing = editingCell?.row === row && editingCell?.col === col;
               const cellValue = getCellValue(row, col);
-              const cellStyle = getCellStyle(cell);
+              const cellStyle = getCellStyle(row, col);
+
+              // Debug first few cells
+              if (row === 0 && col === 0) {
+                console.log('📍 [GRID] Rendering cell (0,0):', { cellKey, cellValue, isSelected, isEditing });
+              }
 
               return (
                 <div
@@ -176,7 +221,10 @@ const SpreadsheetGrid = ({ cells, onCellUpdate, onSelectionChange }) => {
                       ref={inputRef}
                       type="text"
                       value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
+                      onChange={(e) => {
+                        console.log('✏️ [GRID] Input changing:', e.target.value);
+                        setEditValue(e.target.value);
+                      }}
                       onBlur={handleCellBlur}
                       onKeyDown={handleKeyDown}
                       className="w-full h-full px-1 outline-none bg-transparent text-sm"

@@ -25,6 +25,7 @@
     "formulajs": "^1.0.8",
     "handsontable": "^16.1.1",
     "immer": "^10.2.0",
+    "jspdf": "^3.0.4",
     "jwt-decode": "^4.0.0",
     "lucide-react": "^0.553.0",
     "react": "^19.1.1",

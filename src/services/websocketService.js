@@ -25,9 +25,9 @@ class WebSocketService {
         console.log('✅ WebSocket connected successfully');
         this.reconnectAttempts = 0;
         
-        // Send connection established message
+        // Send connection established message - use 'type' instead of 'action'
         this.send({
-          action: 'heartbeat',
+          type: 'heartbeat',  // ✅ CHANGED: action → type
           timestamp: new Date().toISOString()
         });
       };
@@ -87,10 +87,46 @@ class WebSocketService {
     }
   }
 
+  // Update all send methods to use 'type' instead of 'action'
   sendCellUpdate(cellData) {
     return this.send({
-      action: 'cell_update',
-      cell: cellData,
+      type: 'cell_update',  // ✅ CHANGED: action → type
+      cell_id: cellData.cell_id,  // ✅ Use cell_id to match server expectation
+      value: cellData.value,
+      formula: cellData.formula,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  sendCursorMove(cellId, position = {}) {
+    return this.send({
+      type: 'cursor_move',  // ✅ CHANGED: action → type
+      cell_id: cellId,
+      position: position,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  sendSelectionChange(selection = {}) {
+    return this.send({
+      type: 'selection_change',  // ✅ CHANGED: action → type
+      selection: selection,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  sendSheetOperation(operation, details = {}) {
+    return this.send({
+      type: 'sheet_operation',  // ✅ CHANGED: action → type
+      operation: operation,
+      details: details,
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  sendHeartbeat() {
+    return this.send({
+      type: 'heartbeat',  // ✅ CHANGED: action → type
       timestamp: new Date().toISOString()
     });
   }

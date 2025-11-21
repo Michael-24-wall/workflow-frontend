@@ -1,4 +1,4 @@
-// services/chat/api.js - COMPLETE FULL VERSION
+// services/chat/api.js - COMPLETE FULL VERSION WITH BURN USER
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:9000';
 
 class ChatApiService {
@@ -97,6 +97,65 @@ class ChatApiService {
     ];
     const token = tokens.find(t => t && t.length > 10);
     return token;
+  }
+
+  // =============================================================================
+  // BURN USER FUNCTIONALITY - ADDED METHODS
+  // =============================================================================
+
+  // =============================================================================
+// BURN USER FUNCTIONALITY - ADDED METHODS
+// =============================================================================
+
+async burnUserFromChannel(channelId, userId) {
+  try {
+    console.log('🔥 Burning user from channel:', { channelId, userId });
+    
+    const response = await this.request(`/channels/${channelId}/burn_user/`, {
+      method: 'POST', // Changed from DELETE to POST to match your Django view
+      body: JSON.stringify({ user_id: userId }),
+    });
+    
+    console.log('✅ User burned from channel successfully');
+    return response;
+  } catch (error) {
+    console.error('❌ Failed to burn user from channel:', error);
+    throw new Error(`Failed to remove user from channel: ${error.message}`);
+  }
+}
+
+async burnUserFromWorkspace(workspaceId, userId) {
+  try {
+    console.log('🔥 Burning user from workspace:', { workspaceId, userId });
+    
+    const response = await this.request(`/workspaces/${workspaceId}/burn_user/`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+    
+    console.log('✅ User burned from workspace successfully');
+    return response;
+  } catch (error) {
+    console.error('❌ Failed to burn user from workspace:', error);
+    throw new Error(`Failed to remove user from workspace: ${error.message}`);
+  }
+}
+
+  async burnUserFromWorkspace(workspaceId, userId) {
+    try {
+      console.log('🔥 Burning user from workspace:', { workspaceId, userId });
+      
+      const response = await this.request(`/workspaces/${workspaceId}/burn_user/`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId }),
+      });
+      
+      console.log('✅ User burned from workspace successfully');
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to burn user from workspace:', error);
+      throw new Error(`Failed to remove user from workspace: ${error.message}`);
+    }
   }
 
   // =============================================================================
@@ -284,29 +343,29 @@ class ChatApiService {
   }
 
   async inviteToWorkspace(workspaceId, inviteData) {
-  try {
-    console.log('📧 Inviting to workspace:', { workspaceId, inviteData });
-    
-    const emailList = Array.isArray(inviteData) ? inviteData : (inviteData.emails || [inviteData]);
-    
-    // Set default expiration (7 days from now)
-    const expiresAt = inviteData.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    
-    const response = await this.request(`/workspaces/${workspaceId}/invite/`, {
-      method: 'POST',
-      body: JSON.stringify({ 
-        emails: emailList,
-        expires_at: expiresAt
-      }),
-    });
-    
-    console.log('✅ Workspace invitation sent:', response);
-    return response;
-  } catch (error) {
-    console.error('❌ Failed to invite to workspace:', error);
-    throw error;
+    try {
+      console.log('📧 Inviting to workspace:', { workspaceId, inviteData });
+      
+      const emailList = Array.isArray(inviteData) ? inviteData : (inviteData.emails || [inviteData]);
+      
+      // Set default expiration (7 days from now)
+      const expiresAt = inviteData.expires_at || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      
+      const response = await this.request(`/workspaces/${workspaceId}/invite/`, {
+        method: 'POST',
+        body: JSON.stringify({ 
+          emails: emailList,
+          expires_at: expiresAt
+        }),
+      });
+      
+      console.log('✅ Workspace invitation sent:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to invite to workspace:', error);
+      throw error;
+    }
   }
-}
 
   async removeMemberFromWorkspace(workspaceId, userId) {
     try {
@@ -636,58 +695,58 @@ class ChatApiService {
   }
 
   // In the main ChatApiService class - FIXED VERSION
-async inviteToChannel(channelId, userIds) {
-  try {
-    console.log('📨 Inviting users to channel:', { channelId, userIds });
-    
-    // Handle both array and object format
-    const userArray = Array.isArray(userIds) ? userIds : (userIds.user_ids || []);
-    
-    console.log('👥 User IDs to invite:', userArray);
-    
-    // Get organization members to validate
-    const orgMembers = await this.getOrganizationMembers();
-    console.log('🏢 Organization members for validation:', orgMembers);
-    
-    // Check if we need to map user IDs or if they're already valid
-    const validUserIds = userArray.filter(userId => {
-      // Check if userId exists in organization members by any identifier
-      const isValid = orgMembers.some(member => 
-        member.id === userId || 
-        member.user_id === userId ||
-        member.email === userId ||
-        (member.user && member.user.id === userId)
-      );
+  async inviteToChannel(channelId, userIds) {
+    try {
+      console.log('📨 Inviting users to channel:', { channelId, userIds });
       
-      if (!isValid) {
-        console.warn(`⚠️ User ${userId} not found in organization members`);
+      // Handle both array and object format
+      const userArray = Array.isArray(userIds) ? userIds : (userIds.user_ids || []);
+      
+      console.log('👥 User IDs to invite:', userArray);
+      
+      // Get organization members to validate
+      const orgMembers = await this.getOrganizationMembers();
+      console.log('🏢 Organization members for validation:', orgMembers);
+      
+      // Check if we need to map user IDs or if they're already valid
+      const validUserIds = userArray.filter(userId => {
+        // Check if userId exists in organization members by any identifier
+        const isValid = orgMembers.some(member => 
+          member.id === userId || 
+          member.user_id === userId ||
+          member.email === userId ||
+          (member.user && member.user.id === userId)
+        );
+        
+        if (!isValid) {
+          console.warn(`⚠️ User ${userId} not found in organization members`);
+        }
+        
+        return isValid;
+      });
+      
+      console.log('✅ Valid user IDs after filtering:', validUserIds);
+      
+      if (validUserIds.length === 0) {
+        console.warn('⚠️ No valid user IDs found after filtering');
+        // Still send the request with original IDs - let the backend handle validation
+        console.log('🔄 Sending original user IDs to backend for validation');
       }
       
-      return isValid;
-    });
-    
-    console.log('✅ Valid user IDs after filtering:', validUserIds);
-    
-    if (validUserIds.length === 0) {
-      console.warn('⚠️ No valid user IDs found after filtering');
-      // Still send the request with original IDs - let the backend handle validation
-      console.log('🔄 Sending original user IDs to backend for validation');
+      const finalUserIds = validUserIds.length > 0 ? validUserIds : userArray;
+      
+      const response = await this.request(`/channels/${channelId}/invite/`, {
+        method: 'POST',
+        body: JSON.stringify({ user_ids: finalUserIds }),
+      });
+      
+      console.log('✅ Users invited successfully:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to invite users:', error);
+      throw new Error(`Failed to invite users: ${error.message}`);
     }
-    
-    const finalUserIds = validUserIds.length > 0 ? validUserIds : userArray;
-    
-    const response = await this.request(`/channels/${channelId}/invite/`, {
-      method: 'POST',
-      body: JSON.stringify({ user_ids: finalUserIds }),
-    });
-    
-    console.log('✅ Users invited successfully:', response);
-    return response;
-  } catch (error) {
-    console.error('❌ Failed to invite users:', error);
-    throw new Error(`Failed to invite users: ${error.message}`);
   }
-}
 
   async transferChannelOwnership(channelId, newOwnerId) {
     try {
@@ -1081,45 +1140,45 @@ async inviteToChannel(channelId, userIds) {
   }
 
   // FIXED: Correct DM message sending
-async sendDMMessage(dmId, content, messageType = 'text') {
-  try {
-    console.log('📤 Sending DM message:', { dmId, content, messageType });
-    
-    // OPTION 1: Use the general messages endpoint with direct_message context
-    const response = await this.request('/messages/', {
-      method: 'POST',
-      body: JSON.stringify({
-        direct_message: parseInt(dmId), // This is the key field
-        content: content,
-        message_type: messageType
-      }),
-    });
-    
-    console.log('✅ DM message sent successfully:', response);
-    return response;
-    
-  } catch (error) {
-    console.error('❌ Failed to send DM message:', error);
-    
-    // OPTION 2: Fallback to DM-specific endpoint with different payload
+  async sendDMMessage(dmId, content, messageType = 'text') {
     try {
-      console.log('🔄 Trying DM-specific endpoint as fallback');
-      const fallbackResponse = await this.request(`/direct-messages/${dmId}/send_message/`, {
+      console.log('📤 Sending DM message:', { dmId, content, messageType });
+      
+      // OPTION 1: Use the general messages endpoint with direct_message context
+      const response = await this.request('/messages/', {
         method: 'POST',
-        body: JSON.stringify({ 
-          content, 
-          message_type: messageType,
-          // Try adding direct_message field here too
-          direct_message: parseInt(dmId)
+        body: JSON.stringify({
+          direct_message: parseInt(dmId), // This is the key field
+          content: content,
+          message_type: messageType
         }),
       });
-      return fallbackResponse;
-    } catch (fallbackError) {
-      console.error('❌ Fallback method also failed:', fallbackError);
-      throw error; // Throw original error
+      
+      console.log('✅ DM message sent successfully:', response);
+      return response;
+      
+    } catch (error) {
+      console.error('❌ Failed to send DM message:', error);
+      
+      // OPTION 2: Fallback to DM-specific endpoint with different payload
+      try {
+        console.log('🔄 Trying DM-specific endpoint as fallback');
+        const fallbackResponse = await this.request(`/direct-messages/${dmId}/send_message/`, {
+          method: 'POST',
+          body: JSON.stringify({ 
+            content, 
+            message_type: messageType,
+            // Try adding direct_message field here too
+            direct_message: parseInt(dmId)
+          }),
+        });
+        return fallbackResponse;
+      } catch (fallbackError) {
+        console.error('❌ Fallback method also failed:', fallbackError);
+        throw error; // Throw original error
+      }
     }
   }
-}
 
   async startDirectMessageWithWorkspace(workspaceId, userId) {
     try {
@@ -1562,15 +1621,19 @@ async sendDMMessage(dmId, content, messageType = 'text') {
   }
 }
 
+
+
 // Create singleton instance
 const chatApiService = new ChatApiService();
 
 // =============================================================================
-// COMPREHENSIVE SERVICE EXPORTS - ALL FEATURES
+// COMPREHENSIVE SERVICE EXPORTS - ALL FEATURES WITH BURN USER
 // =============================================================================
 
-// Workspace Service
-// Workspace Service - FIXED VERSION
+// Workspace Service - UPDATED WITH BURN USER
+// In services/chat/api.js - Add these methods to the workspaceService export
+
+// Workspace Service - UPDATED WITH DELETE/RESTORE METHODS
 export const workspaceService = {
   // Basic workspace operations
   getWorkspaces: () => chatApiService.getWorkspaces(),
@@ -1602,10 +1665,47 @@ export const workspaceService = {
     }
   },
   
+  // 🆕 ADDED: Delete workspace method
+  deleteWorkspace: async (workspaceId) => {
+    try {
+      console.log('🗑️ Deleting workspace:', workspaceId);
+      
+      const response = await chatApiService.request(`/workspaces/${workspaceId}/delete_workspace/`, {
+        method: 'DELETE',
+      });
+      
+      console.log('✅ Workspace deleted successfully');
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to delete workspace:', error);
+      throw new Error(`Failed to delete workspace: ${error.message}`);
+    }
+  },
+
+  // 🆕 ADDED: Restore workspace method
+  restoreWorkspace: async (workspaceId) => {
+    try {
+      console.log('🔄 Restoring workspace:', workspaceId);
+      
+      const response = await chatApiService.request(`/workspaces/${workspaceId}/restore_workspace/`, {
+        method: 'POST',
+      });
+      
+      console.log('✅ Workspace restored successfully');
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to restore workspace:', error);
+      throw new Error(`Failed to restore workspace: ${error.message}`);
+    }
+  },
+  
   // Workspace member management
   getWorkspaceMembers: (workspaceId) => chatApiService.getWorkspaceMembers(workspaceId),
   removeMemberFromWorkspace: (workspaceId, userId) => chatApiService.removeMemberFromWorkspace(workspaceId, userId),
   updateMemberRole: (workspaceId, userId, role) => chatApiService.updateMemberRole(workspaceId, userId, role),
+  
+  // 🔥 BURN USER FUNCTIONALITY - ADDED
+  burnUserFromWorkspace: (workspaceId, userId) => chatApiService.burnUserFromWorkspace(workspaceId, userId),
   
   // Organization members integration
   getOrganizationMembers: () => chatApiService.getOrganizationMembers(),
@@ -1626,8 +1726,7 @@ export const workspaceService = {
   declineWorkspaceInvitation: (workspaceId) => chatApiService.request(`/workspaces/${workspaceId}/decline_invitation/`, { method: 'POST' }),
   getWorkspaceInvitationSuggestions: (workspaceId) => chatApiService.request(`/workspaces/${workspaceId}/invitation_suggestions/`),
 };
-// Channel Service
-// Channel Service - FIXED VERSION
+// Channel Service - UPDATED WITH BURN USER
 export const channelService = {
   // Basic channel operations
   getChannels: (workspaceId) => chatApiService.getChannels(workspaceId),
@@ -1646,6 +1745,9 @@ export const channelService = {
   getChannelMembers: (channelId) => chatApiService.getChannelMembers(channelId),
   updateChannelMemberRole: (channelId, userId, role) => chatApiService.updateChannelMemberRole(channelId, userId, role),
   removeMemberFromChannel: (channelId, userId) => chatApiService.removeMemberFromChannel(channelId, userId),
+  
+  // 🔥 BURN USER FUNCTIONALITY - ADDED
+  burnUserFromChannel: (channelId, userId) => chatApiService.burnUserFromChannel(channelId, userId),
   
   // Channel administration
   archiveChannel: (channelId) => chatApiService.archiveChannel(channelId),
@@ -1706,6 +1808,7 @@ export const channelService = {
   getInvitationStatus: (channelId) => 
     chatApiService.request(`/channels/${channelId}/invitation_status/`),
 };
+
 // Direct Message Service
 export const dmService = {
   // Basic DM operations

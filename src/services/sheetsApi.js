@@ -47,6 +47,7 @@ sheetsApi.interceptors.response.use(
 );
 
 // Spreadsheet API
+// Spreadsheet API
 export const spreadsheetApi = {
   // Get all spreadsheets
   getAll: () => sheetsApi.get('/spreadsheets/'),
@@ -79,11 +80,16 @@ export const spreadsheetApi = {
   export: (spreadsheetId, format = 'json') => 
     sheetsApi.get(`/spreadsheets/${spreadsheetId}/export/?format=${format}`),
   
+  // NEW: Download spreadsheet - ADD THIS
+  download: (spreadsheetId) => 
+    sheetsApi.get(`/spreadsheets/${spreadsheetId}/download/`, {
+      responseType: 'blob' // Important for file downloads
+    }),
+  
   // Get WebSocket connection info
   getConnectionInfo: (spreadsheetId) => 
     sheetsApi.get(`/spreadsheets/${spreadsheetId}/connect/`),
 };
-
 // Sheets API
 export const sheetApi = {
   // Get all sheets
