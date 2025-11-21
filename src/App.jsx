@@ -25,7 +25,14 @@ import SpreadsheetEditor from "./components/sheets/SpreadsheetEditor";
 
 // 📊 EDITOR - Import the Editor Components
 import EditorDashboard from "./components/editor/EditorDashboard";
-import DocumentEditor from "./components/editor/DocumentEditor";
+import RichTextDocumentEditor from "./components/editor/DocumentEditor";
+
+// 📄 NEW: DOCUMENT MANAGEMENT - Import Document Components
+import DocumentDashboard from "./components/documents/DocumentDashboard";
+import DocumentWorkflowEditor from "./components/documents/DocumentEditor";
+import DocumentTemplates from "./components/documents/DocumentTemplates";
+import DocumentSign from "./components/documents/DocumentSign";
+import DocumentShare from "./components/documents/DocumentShare";
 
 // 💬 CHAT - Import the Chat Components
 import { AuthProvider } from "./contexts/chat/AuthContext";
@@ -460,6 +467,32 @@ function App() {
                 }
               />
 
+              {/* 📄 NEW: Document Management Routes */}
+              <Route
+                path="/documents"
+                element={user ? <DocumentDashboard /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/documents/create"
+                element={user ? <DocumentWorkflowEditor /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/documents/:documentId"
+                element={user ? <DocumentWorkflowEditor /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/documents/:documentId/sign"
+                element={user ? <DocumentSign /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/documents/:documentId/share"
+                element={user ? <DocumentShare /> : <Navigate to="/login" replace />}
+              />
+              <Route
+                path="/documents/templates"
+                element={user ? <DocumentTemplates /> : <Navigate to="/login" replace />}
+              />
+
               {/* 💬 FIXED: Chat Dashboard Routes with Error Boundaries */}
               <Route
                 path="/chat"
@@ -603,7 +636,7 @@ function App() {
               />
               <Route
                 path="/editor/document/:documentId"
-                element={user ? <DocumentEditor /> : <Navigate to="/login" replace />}
+                element={user ? <RichTextDocumentEditor /> : <Navigate to="/login" replace />}
               />
 
               <Route

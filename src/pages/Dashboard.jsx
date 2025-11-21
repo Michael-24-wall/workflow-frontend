@@ -34,7 +34,12 @@ import {
   Warning as WarningIcon,
   Schedule as ScheduleIcon,
   Chat as ChatIcon,
-  Forum as ForumIcon
+  Forum as ForumIcon,
+  Description as DocumentIcon,
+  Folder as FolderIcon,
+  Assignment as TemplateIcon,
+  HowToReg as SignIcon,
+  Share as ShareIcon
 } from '@mui/icons-material';
 import useAuthStore from '../stores/authStore';
 import useEditorStore from '../stores/editorStore';
@@ -246,7 +251,9 @@ const Dashboard = () => {
     totalDocuments: 0,
     teamMembers: 0,
     pendingInvitations: 0,
-    activeMembers: 0
+    activeMembers: 0,
+    signedDocuments: 0,
+    documentTemplates: 0
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -381,11 +388,20 @@ const Dashboard = () => {
       }
       
       if (orgResult?.success) {
+        // Mock document statistics - in real app, you'd get this from your document service
+        const documentStats = {
+          totalDocuments: documents?.length || 12,
+          signedDocuments: documents?.filter(doc => doc.status === 'signed')?.length || 8,
+          documentTemplates: 5 // Mock data
+        };
+
         setStats({
           totalDocuments: documents?.length || 0,
           teamMembers: members?.length || 0,
           pendingInvitations: invitations?.length || 0,
-          activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0
+          activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0,
+          signedDocuments: documentStats.signedDocuments,
+          documentTemplates: documentStats.documentTemplates
         });
       } else {
         throw new Error(orgResult?.error || 'Failed to fetch organization data');
@@ -434,11 +450,20 @@ const Dashboard = () => {
     if (hasAccess && !organization && !loading) {
       loadData();
     } else if (hasAccess && organization) {
+      // Mock document statistics
+      const documentStats = {
+        totalDocuments: documents?.length || 12,
+        signedDocuments: documents?.filter(doc => doc.status === 'signed')?.length || 8,
+        documentTemplates: 5
+      };
+
       setStats({
         totalDocuments: documents?.length || 0,
         teamMembers: members?.length || 0,
         pendingInvitations: invitations?.length || 0,
-        activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0
+        activeMembers: members?.filter(m => m.status === 'active' || !m.status).length || 0,
+        signedDocuments: documentStats.signedDocuments,
+        documentTemplates: documentStats.documentTemplates
       });
       setLoading(false);
     } else {
@@ -681,11 +706,35 @@ const Dashboard = () => {
         roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
       },
       {
+        title: 'Documents',
+        description: 'Manage documents, templates, and digital signatures',
+        icon: <DocumentIcon className="text-white text-2xl" />,
+        path: '/documents',
+        color: 'from-indigo-500 to-indigo-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
+      },
+      {
         title: 'Team Chat',
         description: 'Real-time messaging with your team members',
         icon: <ChatIcon className="text-white text-2xl" />,
         path: '/chat',
         color: 'from-blue-500 to-blue-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
+      },
+      {
+        title: 'Document Templates',
+        description: 'Create and manage document templates',
+        icon: <TemplateIcon className="text-white text-2xl" />,
+        path: '/documents/templates',
+        color: 'from-purple-500 to-purple-600',
+        roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER']
+      },
+      {
+        title: 'Digital Signatures',
+        description: 'Sign and manage document approvals',
+        icon: <SignIcon className="text-white text-2xl" />,
+        path: '/documents',
+        color: 'from-green-500 to-green-600',
         roles: ['OWNER', 'EXECUTIVE', 'ADMIN', 'MANAGER', 'HR', 'FINANCE', 'SOCIAL_WORKER', 'MEMBER']
       },
       {
@@ -865,6 +914,13 @@ const Dashboard = () => {
                     >
                       <SheetsIcon fontSize="small" />
                       Sheets
+                    </Link>
+                    <Link 
+                      to="/documents" 
+                      className="text-white hover:text-blue-200 px-3 py-2 rounded-md text-sm font-medium transition-all duration-300 hover:bg-blue-700 hover:-translate-y-0.5 flex items-center gap-1"
+                    >
+                      <DocumentIcon fontSize="small" />
+                      Documents
                     </Link>
                     <Link 
                       to="/chat" 
@@ -1073,6 +1129,13 @@ const Dashboard = () => {
                     <SheetsIcon fontSize="small" />
                     Launch Sheets
                   </Link>
+                  <Link
+                    to="/documents"
+                    className="bg-indigo-600 text-white px-4 py-1 rounded-full text-sm font-medium hover:bg-indigo-700 transition-colors flex items-center gap-1"
+                  >
+                    <DocumentIcon fontSize="small" />
+                    Manage Documents
+                  </Link>
                   <button
                     onClick={toggleChat}
                     className="bg-blue-600 text-white px-4 py-1 rounded-full text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-1"
@@ -1102,7 +1165,7 @@ const Dashboard = () => {
               </div>
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-6">
                 <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
                   <div className="flex items-center gap-2 mb-2">
                     <SheetsIcon className="text-green-600" />
@@ -1116,6 +1179,54 @@ const Dashboard = () => {
                   >
                     Create New
                     <SheetsIcon fontSize="small" />
+                  </Link>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-indigo-500">
+                  <div className="flex items-center gap-2 mb-2">
+                    <DocumentIcon className="text-indigo-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">Documents</h3>
+                  </div>
+                  <p className="text-3xl font-bold text-indigo-800">{stats.totalDocuments}</p>
+                  <p className="text-sm text-gray-500">Total documents</p>
+                  <Link 
+                    to="/documents" 
+                    className="text-indigo-600 hover:text-indigo-800 text-sm font-medium mt-2 inline-block flex items-center gap-1"
+                  >
+                    Manage Documents
+                    <DocumentIcon fontSize="small" />
+                  </Link>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500">
+                  <div className="flex items-center gap-2 mb-2">
+                    <SignIcon className="text-green-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">Signed</h3>
+                  </div>
+                  <p className="text-3xl font-bold text-green-800">{stats.signedDocuments}</p>
+                  <p className="text-sm text-gray-500">Signed documents</p>
+                  <Link 
+                    to="/documents" 
+                    className="text-green-600 hover:text-green-800 text-sm font-medium mt-2 inline-block flex items-center gap-1"
+                  >
+                    View All
+                    <SignIcon fontSize="small" />
+                  </Link>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-purple-500">
+                  <div className="flex items-center gap-2 mb-2">
+                    <TemplateIcon className="text-purple-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">Templates</h3>
+                  </div>
+                  <p className="text-3xl font-bold text-purple-800">{stats.documentTemplates}</p>
+                  <p className="text-sm text-gray-500">Available templates</p>
+                  <Link 
+                    to="/documents/templates" 
+                    className="text-purple-600 hover:text-purple-800 text-sm font-medium mt-2 inline-block flex items-center gap-1"
+                  >
+                    Browse Templates
+                    <TemplateIcon fontSize="small" />
                   </Link>
                 </div>
                 
@@ -1143,27 +1254,20 @@ const Dashboard = () => {
                   <p className="text-3xl font-bold text-orange-800">{stats.activeMembers}</p>
                   <p className="text-sm text-gray-500">Currently active</p>
                 </div>
-
-                <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-purple-500">
-                  <div className="flex items-center gap-2 mb-2">
-                    <EmailIcon className="text-purple-600" />
-                    <h3 className="text-lg font-semibold text-gray-900">Pending Invites</h3>
-                  </div>
-                  <p className="text-3xl font-bold text-purple-800">{stats.pendingInvitations}</p>
-                  <p className="text-sm text-gray-500">Awaiting response</p>
-                </div>
               </div>
 
               {/* Available Dashboards Grid */}
               <div className="bg-white p-6 rounded-lg shadow-sm mb-6 border border-blue-100">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Available Dashboards</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-c-3 gap-4">
                   {dashboardCards.map((dashboard, index) => (
                     <Link
                       key={index}
                       to={dashboard.path}
                       className={`block p-4 rounded-lg bg-gradient-to-r ${dashboard.color} text-white transform transition-all duration-300 hover:scale-105 hover:shadow-lg ${
                         dashboard.title === 'Sheets' ? 'ring-2 ring-green-300 ring-opacity-50' : ''
+                      } ${
+                        dashboard.title === 'Documents' ? 'ring-2 ring-indigo-300 ring-opacity-50' : ''
                       } ${
                         dashboard.title === 'Team Chat' ? 'ring-2 ring-blue-300 ring-opacity-50' : ''
                       } ${
@@ -1184,6 +1288,11 @@ const Dashboard = () => {
                         {dashboard.title === 'Sheets' && (
                           <span className="bg-green-400 text-green-900 text-xs px-2 py-1 rounded-full font-medium">
                             NEW
+                          </span>
+                        )}
+                        {dashboard.title === 'Documents' && (
+                          <span className="bg-indigo-400 text-indigo-900 text-xs px-2 py-1 rounded-full font-medium">
+                            DOCS
                           </span>
                         )}
                         {dashboard.title === 'Team Chat' && (
@@ -1360,7 +1469,7 @@ const Dashboard = () => {
               {/* Quick Actions */}
               <div className="bg-white p-6 rounded-lg shadow-sm mt-6 border border-blue-100">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
                   <Link
                     to="/sheets"
                     className="bg-green-50 border border-green-200 text-green-700 p-4 rounded-lg text-center hover:bg-green-100 transition-colors group"
@@ -1369,6 +1478,26 @@ const Dashboard = () => {
                       <SheetsIcon fontSize="large" />
                     </div>
                     <span className="font-medium">Sheets</span>
+                  </Link>
+                  
+                  <Link
+                    to="/documents"
+                    className="bg-indigo-50 border border-indigo-200 text-indigo-700 p-4 rounded-lg text-center hover:bg-indigo-100 transition-colors group"
+                  >
+                    <div className="text-indigo-600 mb-2 group-hover:scale-110 transition-transform">
+                      <DocumentIcon fontSize="large" />
+                    </div>
+                    <span className="font-medium">Documents</span>
+                  </Link>
+
+                  <Link
+                    to="/documents/templates"
+                    className="bg-purple-50 border border-purple-200 text-purple-700 p-4 rounded-lg text-center hover:bg-purple-100 transition-colors group"
+                  >
+                    <div className="text-purple-600 mb-2 group-hover:scale-110 transition-transform">
+                      <TemplateIcon fontSize="large" />
+                    </div>
+                    <span className="font-medium">Templates</span>
                   </Link>
                   
                   <button
